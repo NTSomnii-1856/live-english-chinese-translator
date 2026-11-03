@@ -31,9 +31,11 @@ test('remote sharing requires login and rejects foreign origins before proxying'
     });
   }
   const login=await request('/');
+  assert.equal(login.headers['referrer-policy'],'same-origin');
   assert.equal(login.status,200); assert.match(login.body,/Access code/);assert.ok(!login.body.includes(code));
   assert.equal((await request('/translate',{method:'POST',origin:publicOrigin,body:'{}'})).status,401);
   assert.equal((await request('/login',{method:'POST',origin:'https://evil.example',body:'code='+code})).status,403);
+  assert.equal((await request('/login',{method:'POST',origin:'null',body:'code='+code})).status,403);
   assert.equal((await request('/login',{method:'POST',origin:publicOrigin,body:'code=wrong'})).status,401);
   const signedIn=await request('/login',{method:'POST',origin:publicOrigin,body:'code='+code});
   assert.equal(signedIn.status,303);

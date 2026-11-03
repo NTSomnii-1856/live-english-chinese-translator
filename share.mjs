@@ -10,7 +10,8 @@ import { studentQrSvg } from './student-qr.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
 const runtime = resolve(root, '.local');
 await mkdir(runtime, { recursive: true });
-const code = String(randomInt(100000, 1000000));
+const code = /^[0-9]{6}$/.test(process.env.TRANSLATOR_ACCESS_CODE || '')
+  ? process.env.TRANSLATOR_ACCESS_CODE : String(randomInt(100000, 1000000));
 const target = 'http://127.0.0.1:8767';
 let publicOrigin = null;
 let tunnel = null;

@@ -28,7 +28,9 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'no-referrer');
+    // Native sign-in forms need their same-origin Origin header. no-referrer
+    // can make browsers send Origin: null for a form navigation.
+    res.setHeader('Referrer-Policy', 'same-origin');
     res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const publicOrigin = getPublicOrigin();
     if (!publicOrigin) return reply(res, 503, { error: 'The sharing connection is starting.' });
