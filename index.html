@@ -51,12 +51,12 @@ async function connect() {
     message('Open Start Translator.cmd in this folder, then use http://127.0.0.1:8765. The local bridge is required.', true);
     $('connectionText').textContent = 'Local bridge required'; return;
   }
+  if (studentView) { connected = true; startStudentViewer(); return; }
   try {
-    const res = await fetch('/status', { headers });
+    const res = await fetch('/status', { headers, signal: AbortSignal.timeout(15000) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     connected = true;
-    if (studentView) { startStudentViewer(); return; }
     $('connection').classList.add('ready');
     $('connectionText').textContent = 'Connected · ChatGPT account';
     $('start').disabled = !Recognition; $('translate').disabled = false;
@@ -189,18 +189,24 @@ function renderViewerRecord(record){
 }
 async function startStudentViewer(){
   clearViewer();
+  let failures=0;
   while(!viewerStopped){
     viewerController=new AbortController();
+    let watchdog=setTimeout(()=>viewerController.abort(),12000);
+    setViewerConnection(failures ? 'Connection unavailable. Retrying…' : 'Connecting to the teacher…');
     try{
       const res=await fetch('/live',{headers,signal:viewerController.signal});
-      if(!res.ok){if(res.status===401){setViewerConnection('Session ended. Refresh to sign in again.');return;}throw Error('Connection unavailable');}
-      setViewerConnection('');const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='';
+      if(!res.ok){if(res.status===401||res.status===403){setViewerConnection('Session ended. Refresh this page to sign in again.');return;}throw Error('Connection unavailable');}
+      clearTimeout(watchdog);watchdog=setTimeout(()=>viewerController.abort(),30000);
+      const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='';
       while(!viewerStopped){
-        const next=await reader.read();buffer+=decoder.decode(next.value,{stream:!next.done});let at;
+        const next=await reader.read();clearTimeout(watchdog);watchdog=setTimeout(()=>viewerController.abort(),30000);buffer+=decoder.decode(next.value,{stream:!next.done});let at;
+        if(next.value?.length){setViewerConnection('');failures=0;}
         while((at=buffer.indexOf('\n'))!==-1){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);if(!line.trim())continue;const event=JSON.parse(line);if(event.type==='snapshot'){clearViewer();for(const record of event.records)renderViewerRecord(record);}if(event.type==='record')renderViewerRecord(event.record);}
         if(next.done)throw Error('Connection closed');
       }
-    }catch(error){if(viewerStopped)return;setViewerConnection('Reconnecting to the teacher…');await new Promise(r=>setTimeout(r,2500));}
+    }catch(error){if(viewerStopped)return;failures++;setViewerConnection(failures>=3?'Cannot reach the teacher. Check your network, then refresh.':'Connection lost. Retrying…');await new Promise(r=>setTimeout(r,2500));}
+    finally{clearTimeout(watchdog);}
   }
 }
 function updateMaximizeButtons(){for(const button of document.querySelectorAll('.maximize')){const pane=$(button.dataset.panel);const expanded=document.fullscreenElement===pane||pane.classList.contains('is-maximized');button.textContent=expanded?'↙':'⛶';const language=button.dataset.panel==='englishPane'?'English':'Chinese';button.setAttribute('aria-label',(expanded?'Restore ':'Maximize ')+language+' panel');button.title=expanded?'Restore panel':'Maximize panel';}}
