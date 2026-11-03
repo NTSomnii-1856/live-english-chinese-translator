@@ -1,5 +1,9 @@
 # Live English → Simplified Chinese
 
+Entry page: https://ntsomnii-1856.github.io/live-english-chinese-translator/
+
+Protected live translator: https://rockiness-curve-satchel.ngrok-free.dev (available while sharing is running on the PC).
+
 ## Use from another device (PC stays on, no API key)
 
 Run **Share Translator.cmd** on the PC. It starts an access-code-protected ngrok HTTPS connection and the local Codex bridge. On that PC, open **http://127.0.0.1:8768** to see the HTTPS address and access code. Open the HTTPS address on your other device, enter the access code, and allow its microphone.
