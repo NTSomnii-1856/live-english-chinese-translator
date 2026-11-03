@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node server.mjs",
     "share": "node share.mjs",
-    "check": "node --check server.mjs && node --check share.mjs && node --check remote-proxy.mjs && node --check live-feed.mjs && node --check student-qr.mjs",
-    "test": "node --test remote-proxy.test.mjs live-feed.test.mjs"
+    "check": "node --check server.mjs && node --check share.mjs && node --check remote-proxy.mjs && node --check live-feed.mjs && node --check student-qr.mjs && node --check translation-queue.mjs",
+    "test": "node --test remote-proxy.test.mjs live-feed.test.mjs translation-queue.test.mjs"
   },
   "engines": { "node": ">=20" }
 }

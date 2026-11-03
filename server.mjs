@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createLiveFeed } from './live-feed.mjs';
+import { createTranslationQueue } from './translation-queue.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const cwd = resolve(root, '.local/translator-context');
@@ -129,7 +130,8 @@ class CodexBridge {
 
 const bridge = new CodexBridge();
 const liveFeed = createLiveFeed();
-let busy = false;
+const translations = createTranslationQueue();
+const activeDevices = new Set();
 function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); }
 const server = http.createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -151,7 +153,6 @@ const server = http.createServer(async (req, res) => {
     catch (error) { return json(res, 503, { error: error.message }); }
   }
   if (req.method !== 'POST' || path !== '/translate') return json(res, 404, { error: 'Not found.' });
-  if (busy) return json(res, 409, { error: 'Another phrase is translating. Please retry shortly.' });
   if (req.headers['content-type'] !== 'application/json') return json(res, 415, { error: 'Expected JSON.' });
   let raw = '';
   try {
@@ -163,15 +164,18 @@ const server = http.createServer(async (req, res) => {
     const data = JSON.parse(raw);
     if (typeof data.text !== 'string' || !data.text.trim() || data.text.length > 4000) return json(res, 400, { error: 'Enter 1–4000 characters.' });
     const context = typeof data.context === 'string' ? data.context.slice(-3000) : '';
-    busy = true;
+    const device = req.headers['x-translator-device'] || 'local';
+    if (activeDevices.has(device)) return json(res, 409, { error: 'This device is already translating a phrase. Please retry shortly.' });
+    activeDevices.add(device);
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
     const controller = new AbortController();
     res.on('close', () => controller.abort());
-    const recordId = liveFeed.start(data.text.trim());
-    const emit = event => { liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
-    try { await bridge.translate(data.text.trim(), context, emit, controller.signal); }
+    // Remote devices have private transcripts; only the optional local session uses the local feed.
+    const recordId = device === 'local' ? liveFeed.start(data.text.trim()) : null;
+    const emit = event => { if (recordId) liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
+    try { await translations.run(() => bridge.translate(data.text.trim(), context, emit, controller.signal), controller.signal, position => emit({ type:'queued', position })); }
     catch (error) { emit({ type: 'error', message: error.message }); }
-    finally { busy = false; res.end(); }
+    finally { activeDevices.delete(device); res.end(); }
   } catch { if (!res.headersSent) json(res, 400, { error: 'Invalid request.' }); }
 });
 server.listen(port, '127.0.0.1', () => console.log(`Live translator: ${origin}\nUses your signed-in Codex / ChatGPT account. Press Ctrl+C to stop.`));

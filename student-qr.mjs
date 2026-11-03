@@ -17,6 +17,6 @@ export function studentQrSvg(address) {
     margin: 32,
     scalable: true,
     title: 'Scan to open student sign-in',
-    alt: 'Opens the protected translator. Enter the class access code after scanning.',
+    alt: 'Opens the protected translator. Enter the access code, then start listening on your own device.',
   }).replace('<svg ', '<svg shape-rendering="crispEdges" ');
 }

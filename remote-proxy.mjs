@@ -48,7 +48,7 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
         limit('login:' + ip, 5); limit('login:global', 60);
         return reply(res, 401, loginPage('Incorrect access code. Please try again.'), 'text/html; charset=utf-8');
       }
-      if (sessions.size >= 20) return reply(res, 429, { error: 'Too many signed-in devices. Restart sharing to reset them.' });
+      if (sessions.size >= 100) return reply(res, 429, { error: 'Too many signed-in devices. Restart sharing to reset them.' });
       const session = randomBytes(32).toString('hex'); sessions.set(session, Date.now() + ttl);
       res.writeHead(303, { Location: '/?student=1', 'Set-Cookie': `${cookieName}=${session}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${ttl/1000}` });
       return res.end();
@@ -63,15 +63,16 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
       res.writeHead(303, { Location: '/', 'Set-Cookie': `${cookieName}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0` });
       return res.end();
     }
-    if (req.method === 'POST' && ['/translate','/clear'].includes(path)) return reply(res, 403, { error: 'Students can view translations only. Use the teacher studio on the PC to translate.' });
+    if (path === '/live' || path === '/clear') return reply(res, 403, { error: 'Each student device has its own private transcript.' });
     if (req.method === 'GET' && ['/', '/index.html'].includes(path) && new URL(req.url,publicOrigin).searchParams.get('student') !== '1') {
       res.writeHead(303, { Location: '/?student=1' }); return res.end();
     }
-    if (!(req.method === 'GET' && ['/', '/index.html', '/status', '/live'].includes(path))) return reply(res, 404, { error: 'Not found.' });
+    if (!((req.method === 'GET' && ['/', '/index.html', '/status'].includes(path)) || (req.method === 'POST' && path === '/translate'))) return reply(res, 404, { error: 'Not found.' });
     if (req.method === 'POST' && req.headers.origin !== publicOrigin) return reply(res, 403, { error: 'Request origin rejected.' });
-    if (path === '/translate' && !limit('translate:' + session, 25)) return reply(res, 429, { error: 'Please wait a minute before translating more phrases.' });
+    if (path === '/translate' && !limit('translate:' + session, 60)) return reply(res, 429, { error: 'Please wait a minute before translating more phrases.' });
     if (Number(req.headers['content-length']) > 20000) return reply(res, 413, { error: 'Phrase too long.' });
     const upstreamHeaders = { host: new URL(target).host, origin: target };
+    upstreamHeaders['x-translator-device'] = session;
     for (const name of ['content-type', 'x-local-token']) if (req.headers[name]) upstreamHeaders[name] = req.headers[name];
     const upstream = http.request(new URL(path, target), { method: req.method, headers: upstreamHeaders }, response => {
       res.writeHead(response.statusCode, response.headers); response.pipe(res);

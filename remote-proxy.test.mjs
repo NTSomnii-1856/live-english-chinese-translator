@@ -11,6 +11,7 @@ test('remote sharing requires login and rejects foreign origins before proxying'
     called++;
     assert.equal(req.headers.origin, target);
     assert.equal(req.headers.host, new URL(target).host);
+    assert.match(req.headers['x-translator-device'],/^[a-f0-9]{64}$/);
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
     res.end(JSON.stringify({ type: 'done', text: '你好' }) + '\n');
   });
@@ -45,9 +46,9 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   assert.equal((await request('/translate',{method:'POST',origin:'https://evil.example',cookie,body:'{}'})).status,403);
   assert.equal((await request('/translate',{method:'POST',cookie,body:'{}'})).status,403);
   assert.equal((await request('/status',{cookie,host:'evil.example'})).status,403);
-  assert.equal((await request('/translate',{method:'POST',origin:publicOrigin,cookie,body:'{"text":"Hello"}'})).status,403);
   assert.equal((await request('/clear',{method:'POST',origin:publicOrigin,cookie,body:'{}'})).status,403);
-  const translated=await request('/live',{cookie});
+  assert.equal((await request('/live',{cookie})).status,403);
+  const translated=await request('/translate',{method:'POST',origin:publicOrigin,cookie,body:'{"text":"Hello"}'});
   assert.equal(translated.status,200);assert.match(translated.body,/你好/);assert.equal(called,1);
   assert.equal((await request('/owner',{cookie})).status,404);
   assert.equal((await request('/logout',{method:'POST',origin:publicOrigin,cookie})).status,303);

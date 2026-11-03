@@ -31,10 +31,10 @@ const owner = http.createServer((req, res) => {
   <h1>Student sign-in</h1><p>Show this page to the students you want to give access.</p>
   <section class="student-access"><h2>Scan to open the translator</h2>
   ${publicOrigin ? studentQrSvg(publicOrigin) : '<p>Starting the secure connection… Refresh in a moment.</p>'}
-  <p>1. Scan with your phone camera.<br>2. Enter the access code below.<br>3. Watch the teacher’s live translation.</p>
+  <p>1. Scan with your phone camera.<br>2. Enter the access code below.<br>3. Tap Start listening and allow your device’s microphone.</p>
   <code>${code}</code>
   ${publicOrigin ? `<p><a href="${publicOrigin}" target="_blank" rel="noreferrer">${publicOrigin}</a></p>` : ''}
-  </section><p>Teacher: <a href="http://127.0.0.1:8767" target="_blank" rel="noreferrer">Open teacher studio</a> and start listening there.</p><small>Share this code only with your students. Keep this PC awake and sharing running. Closing sharing disconnects devices; restarting changes the access code.</small></html>`);
+  </section><small>Each student device listens and translates independently. This PC only needs the background sharing service running; its microphone and browser can stay off. Share the code with your students and keep this PC awake.</small></html>`);
 });
 async function waitFor(url, tries = 40) {
   for (let i = 0; i < tries; i++) {
@@ -91,5 +91,5 @@ try {
   if (!publicOrigin) throw new Error('No HTTPS tunnel was assigned. Check ngrok sign-in/configuration.');
   // Only the public address is persisted; access codes and account credentials are not.
   await writeFile(resolve(runtime, 'share-info.json'), JSON.stringify({ publicOrigin, ownerUrl:'http://127.0.0.1:8768' }, null, 2));
-  console.log(`Student translator: ${publicOrigin}/?student=1\nTeacher studio: http://127.0.0.1:8767\nStudent QR + access code (on this PC only): http://127.0.0.1:8768\nKeep this process running. Press Ctrl+C to stop sharing.`);
+  console.log(`Student translator: ${publicOrigin}/?student=1\nOptional local translator: http://127.0.0.1:8767\nStudent QR + access code (on this PC only): http://127.0.0.1:8768\nKeep this process running. Press Ctrl+C to stop sharing.`);
 } catch (error) { console.error(error.message); stop(); process.exitCode=1; }
