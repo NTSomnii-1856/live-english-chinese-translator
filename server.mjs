@@ -24,6 +24,7 @@ class CodexBridge {
   proc = null;
   deviceThreads = new Map();
   model = process.env.TRANSLATOR_MODEL || 'gpt-6-luna';
+  effort = process.env.TRANSLATOR_EFFORT || (this.model === 'gpt-6-luna' ? 'none' : 'low');
   start() {
     if (this.ready) return this.ready;
     this.ready = this.boot().catch(error => { this.ready = null; this.proc?.kill(); throw error; });
@@ -85,7 +86,7 @@ class CodexBridge {
   async prepareDevice(device) {
     await this.start();
     const existing = this.deviceThreads.get(device);
-    if (existing && existing.turns < 20 && Date.now() - existing.usedAt < 10*60*1000) {
+    if (existing && existing.turns < 80 && Date.now() - existing.usedAt < 10*60*1000) {
       existing.usedAt = Date.now(); return existing;
     }
     if (existing) this.releaseDevice(device, existing);
@@ -134,7 +135,7 @@ class CodexBridge {
         this.listeners.add(listener);
         signal.addEventListener('abort', abort, { once: true });
         const prompt = `Prior English context (do not translate again): ${JSON.stringify(context)}\nCurrent English phrase to translate: ${JSON.stringify(text)}`;
-        this.rpc('turn/start', { threadId: thread.id, input: [{ type: 'text', text: prompt }], effort: 'low', environments: [] })
+        this.rpc('turn/start', { threadId: thread.id, input: [{ type: 'text', text: prompt }], effort: this.effort, environments: [] })
           .then(({ turn }) => { turnId = turn.id; if (signal.aborted) interrupt(); })
           .catch(fail);
       });
@@ -163,6 +164,10 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (req.headers.host !== `127.0.0.1:${port}`) return json(res, 403, { error: 'Use the local 127.0.0.1 address.' });
   const path = new URL(req.url, origin).pathname;
+  if (req.method === 'GET' && path === '/speech-preview.mjs') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    return res.end(await readFile(resolve(root, 'speech-preview.mjs'), 'utf8'));
+  }
   if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
     const html = (await readFile(resolve(root, 'index.html'), 'utf8')).replace('__LOCAL_TOKEN__', token);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(html);

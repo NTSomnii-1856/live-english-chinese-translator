@@ -13,7 +13,7 @@
 .student body{height:100dvh;overflow:hidden}.student main{max-width:none;padding:12px;height:100dvh;display:flex;flex-direction:column}.student header,.student .intro,.student .toolbar,.student .controls,.student .message,.student .below,.student footer,.student .badge,.student .language small,.student .livewave,.student #interim{display:none!important}.student .workspace{flex:1;min-height:0;display:flex;flex-direction:column}.student .panes{flex:1;min-height:0;grid-template-columns:1fr 1fr}.student .pane{display:flex;flex-direction:column;min-height:0;padding:22px}.student .panehead{flex:none;margin-bottom:20px}.student .language{font-size:15px}.student .transcript{flex:1;min-height:0;height:auto;font-size:clamp(20px,2.5vw,35px);line-height:1.8}.student .chinese{font-size:clamp(26px,3.7vw,50px)}.student .placeholder{opacity:.65;font-size:inherit}
 .pane:fullscreen,.pane.is-maximized{position:fixed;inset:0;z-index:100;width:100vw;height:100dvh;display:flex;flex-direction:column;padding:28px!important;background:#fffefa;border:0!important}.pane#chinesePane:fullscreen,.pane#chinesePane.is-maximized{background:#eef2e9}.pane:fullscreen .panehead,.pane.is-maximized .panehead{flex:none}.pane:fullscreen .transcript,.pane.is-maximized .transcript{flex:1;min-height:0;height:auto;font-size:clamp(26px,4vw,62px)}.pane:fullscreen .chinese,.pane.is-maximized .chinese{font-size:clamp(32px,5vw,76px)}
 @media(max-width:700px){.student .panes{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.student .pane{padding:18px}.student .pane+.pane{border-left:0;border-top:1px solid var(--line)}.student .panehead{margin-bottom:12px}.student main{padding:8px}}
-.student-status,.student-clear{display:none}.student .controls{display:flex!important;gap:10px;padding:12px 16px;flex:none;flex-wrap:wrap}.student .controls .hint,.student .controls .sound{display:none!important}.student .student-status{display:inline;font-size:12px;color:var(--muted);flex:1;min-width:45px}.student .student-clear{display:inline-block;padding:9px 12px;font-size:12px}.student .controls .primary{min-width:160px}.student .message.error{display:block!important;flex:none;padding:8px 12px;font-size:12px}.student #interim{display:block!important;font-size:14px;min-height:0;max-height:60px;overflow:auto}.student .panehead{margin-bottom:12px}</style>
+.student-status,.student-clear{display:none}.student .controls{display:flex!important;gap:10px;padding:12px 16px;flex:none;flex-wrap:wrap}.student .controls .hint,.student .controls .sound{display:none!important}.student .student-status{display:inline;font-size:12px;color:var(--muted);flex:1;min-width:45px}.student .student-clear{display:inline-block;padding:9px 12px;font-size:12px}.student .controls .primary{min-width:160px}.student .message.error{display:block!important;flex:none;padding:8px 12px;font-size:12px}.student #interim{display:block!important;font-size:14px;min-height:0;max-height:60px;overflow:auto}.student .panehead{margin-bottom:12px}.row.provisional{opacity:.68}</style>
 </head>
 <body><div id="viewerConnection" class="viewer-connection" hidden role="status"></div><main>
 <header><div class="brand"><span class="logo" aria-hidden="true">译</span>live<span style="color:#9ca58e"> / </span>translate</div><div id="connection" class="connection"><span class="dot"></span><span id="connectionText">Connecting to local Codex…</span></div></header>
@@ -26,7 +26,8 @@
 <div id="message" class="message" role="status">Checking your local connection…</div>
 <div class="below"><div class="note"><strong>Local page. Your existing account.</strong><br>No API key needed. Translation uses your Codex / ChatGPT allowance and an internet connection. Browser speech recognition may send audio to its speech service. Use headphones for spoken Chinese.</div><details><summary>Type a phrase instead</summary><form id="manual" class="manual"><textarea id="typed" aria-label="English phrase" placeholder="Type English here…" maxlength="4000"></textarea><button id="translate" type="submit" disabled>Translate →</button></form></details></div>
 <footer><span>EN → ZH · SIMPLIFIED CHINESE</span><span>Browser speech recognition + Codex translation</span></footer>
-</main><script>
+</main><script type="module">
+import { createSpeechPreview, sameSpeech } from "/speech-preview.mjs";
 'use strict';
 const TOKEN = '__LOCAL_TOKEN__';
 const $ = id => document.getElementById(id);
@@ -34,7 +35,7 @@ const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const studentView = document.documentElement.classList.contains('student');
 const headers = { 'Content-Type': 'application/json', 'X-Local-Token': TOKEN };
 let connected = false, listening = false, recognition = null, processing = false, blocked = false;
-let queue = [], entries = [], pendingSpeech = [], session = 0, requestController = null, restartTimer = null;
+let queue = [], entries = [], pendingSpeech = [], session = 0, requestController = null, restartTimer = null, speechDrafts = null;
 function message(text, error = false) { $('message').textContent = text; $('message').classList.toggle('error', error); }
 function status() {
   $('status').classList.toggle('active', listening);
@@ -73,21 +74,29 @@ function addPhrase(text, mergePending = false) {
   if (mergePending && pending?.mergePending && pending.session === session && pending.english.length + text.length < 320) {
     pending.english += ' ' + text;
     pending.source.textContent = pending.english;
-    scroll(); status(); return;
+    scroll(); status(); return pending;
   }
   if (entries.length === 0) { $('english').replaceChildren(); $('chinese').replaceChildren(); }
   const source = document.createElement('div'); source.className = 'row'; source.textContent = text;
   const output = document.createElement('div'); output.className = 'row'; output.textContent = '…';
   $('english').append(source); $('chinese').append(output);
-  const entry = { english: text, translation: '', source, output, session, failed: false, mergePending };
+  const entry = { english: text, translation: '', source, output, session, failed: false, mergePending, revision: 0, working: false, provisional: false };
   entries.push(entry); queue.push(entry); scroll();
   if (queue.length >= 12 && listening) { stopListening(); message('Translation is catching up. Listening paused so no more phrases are added. You can restart after the queue clears.'); }
+  pump(); return entry;
+}
+function reviseSpeech(entry, text, final = false) {
+  const changed = !sameSpeech(entry.english, text);
+  entry.english = text; entry.source.textContent = text; entry.provisional = !final; entry.mergePending = false;
+  entry.source.classList.toggle('provisional',!final); entry.output.classList.toggle('provisional',!final || entry.translationRevision !== entry.revision);
+  if (changed) { entry.revision++; entry.translation = ""; entry.output.classList.add('provisional'); if (!entry.working && !queue.includes(entry)) queue.push(entry); }
   pump();
 }
+function finalizeSpeech(entry, text) { reviseSpeech(entry,text,true); }
 function scroll() { for (const id of ['english','chinese']) { const el=$(id); el.scrollTop=el.scrollHeight; } }
 async function pump() {
   if (processing || blocked || !queue.length) return;
-  processing = true; const entry = queue.shift(); status();
+  processing = true; const entry = queue.shift(); const requestRevision = entry.revision; entry.working = true; status();
   requestController = new AbortController();
   try {
     const previous = entries.slice(Math.max(0, entries.indexOf(entry)-3), entries.indexOf(entry)).map(e=>e.english).join(' ');
@@ -95,12 +104,12 @@ async function pump() {
     if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Translation failed.'); }
     const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = '', done = false, accumulated = '';
     function accept(line) {
-      if (!line.trim() || entry.session !== session) return;
+      if (!line.trim() || entry.session !== session || (entry.revision !== requestRevision && !entry.provisional)) return;
       const event = JSON.parse(line);
       if (event.type === 'error') throw new Error(event.message);
       if (event.type === 'queued') { $('studentStatus').textContent = 'Waiting for a translation slot…'; }
-      if (event.type === 'delta') { $('studentStatus').textContent = 'Translating…'; accumulated += event.delta; entry.output.textContent = accumulated; scroll(); }
-      if (event.type === 'done') { done = true; entry.translation = event.text; entry.output.textContent = event.text; scroll(); }
+      if (event.type === 'delta') { $('studentStatus').textContent = 'Translating…'; accumulated += event.delta; entry.output.textContent = accumulated; entry.output.classList.toggle('provisional',entry.provisional); scroll(); }
+      if (event.type === 'done') { done = true; entry.translation = event.text; entry.translationRevision = requestRevision; entry.output.textContent = event.text; entry.output.classList.toggle('provisional',entry.provisional); scroll(); }
     }
     while (true) {
       const next = await reader.read(); buffer += decoder.decode(next.value, { stream: !next.done });
@@ -108,20 +117,24 @@ async function pump() {
       if (next.done) break;
     }
     if (buffer) accept(buffer);
-    if (!done && entry.session === session) throw new Error('Connection ended before the translation finished.');
-    if (entry.session === session) {
-      if ($('speak').checked) { if (listening) pendingSpeech.push(entry.translation); else speak(entry.translation); }
+    if (!done && entry.session === session && entry.revision === requestRevision) throw new Error('Connection ended before the translation finished.');
+    if (entry.session === session && entry.revision === requestRevision) {
+      if ($('speak').checked && !entry.provisional) { if (listening) pendingSpeech.push(entry.translation); else speak(entry.translation); }
       message(listening ? 'Listening. Chinese appears as each phrase is translated.' : 'Translation complete.');
     }
   } catch(error) {
-    if (entry.session === session && error.name !== 'AbortError') {
+    if (entry.session === session && entry.revision === requestRevision && error.name !== 'AbortError') {
       entry.failed = true; blocked = true; stopListening();
       entry.output.classList.add('failed'); entry.output.textContent = 'Translation paused: '+error.message;
       const retry = document.createElement('button'); retry.textContent = 'Retry phrase & resume queue';
       retry.onclick = () => { retry.remove(); entry.failed=false; entry.output.classList.remove('failed'); entry.output.textContent='…'; blocked=false; queue.unshift(entry); pump(); };
       entry.output.append(retry); message('Listening paused. Retry the failed phrase to continue the queue.', true);
     }
-  } finally { processing=false; requestController=null; status(); pump(); }
+  } finally {
+    entry.working=false;
+    if(entry.session===session && entry.revision!==requestRevision && !entry.failed && !queue.includes(entry)) queue.push(entry);
+    processing=false; requestController=null; status(); pump();
+  }
 }
 function startListening() {
   if (!connected || !Recognition || blocked) { if (blocked) message('Retry the failed phrase or clear the transcript first.', true); return; }
@@ -129,25 +142,44 @@ function startListening() {
   listening=true; recognition=new Recognition();
   recognition.lang='en-US'; recognition.continuous=true; recognition.interimResults=true;
   let fatal=false, heard=false;
+  const currentRecognition=recognition, captureSession=session, speechRows=new Map();
+  const drafts=createSpeechPreview({
+    onPreview(index,text){
+      if(captureSession!==session || recognition!==currentRecognition)return;
+      const existing=speechRows.get(index);if(existing){reviseSpeech(existing,text);$('interim').textContent='';return;}
+      const entry=addPhrase(text);entry.provisional=true;entry.source.classList.add('provisional');entry.output.classList.add('provisional');speechRows.set(index,entry);$('interim').textContent='';
+    },
+    onFinal(index,text){
+      if(captureSession!==session || recognition!==currentRecognition)return;
+      const entry=speechRows.get(index);
+      if(entry)finalizeSpeech(entry,text);else speechRows.set(index,addPhrase(text,true));
+    },
+  });
+  speechDrafts=drafts;
   recognition.onresult=event => {
-    heard=true; let interim='';
-    for(let i=event.resultIndex;i<event.results.length;i++) {
-      if(event.results[i].isFinal) addPhrase(event.results[i][0].transcript, true);
-      else interim+=event.results[i][0].transcript;
+    if(captureSession!==session || recognition!==currentRecognition)return;
+    heard=true;let interim='';
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const result=event.results[i],text=result[0].transcript;
+      drafts.update(i,text,result.isFinal);
+      if(!result.isFinal){const entry=speechRows.get(i);if(entry)entry.source.textContent=text;else interim+=text;}
     }
     $('interim').textContent=interim;
   };
   recognition.onerror=event => {
     if(event.error==='no-speech') return;
-    fatal=true; listening=false; status();
+    fatal=true; drafts.dispose(); listening=false; status();
     const errors={ 'not-allowed':'Microphone access was denied. Allow it in the browser settings and try again.', 'audio-capture':'No microphone is available. Connect a microphone and try again.', 'network':'Browser speech recognition could not connect. Check internet access, or try Chrome / Edge.' };
     message(errors[event.error] || 'Speech recognition stopped: '+event.error, true);
   };
   recognition.onend=() => {
+    if(captureSession===session && recognition===currentRecognition && !fatal)drafts.flush();
+    drafts.dispose();
+    if(recognition!==currentRecognition)return;
     $('interim').textContent='';
     if(listening && !fatal) {
       // Browsers periodically end continuous recognition. Restart while listening is enabled.
-      restartTimer=setTimeout(()=>{if(listening) { listening=false; startListening(); }},heard?200:1200);
+      restartTimer=setTimeout(()=>{if(listening) { listening=false; startListening(); }},heard?80:1200);
     }
   };
   try { recognition.start(); message('Listening. Speak in English and pause briefly between phrases.'); status(); }
@@ -169,7 +201,7 @@ $('speak').onchange=()=>{
 $('manual').onsubmit=event=>{event.preventDefault(); if(!connected) return; if(blocked) return message('Retry the failed phrase or clear first.',true); addPhrase($('typed').value); $('typed').value='';};
 $('typed').onkeydown=event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)) $('manual').requestSubmit();};
 $('clear').onclick=()=>{
-  pendingSpeech=[]; stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
+  pendingSpeech=[]; speechDrafts?.dispose(); stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
   $('english').replaceChildren(); $('chinese').replaceChildren();
   for(const [id,text] of [['english','Your words will appear here.'],['chinese','让语言不再成为距离。']]) { const p=document.createElement('div');p.className='placeholder';p.textContent=text;$(id).append(p); }
   fetch('/clear', { method:'POST', headers, body:'{}' }).catch(()=>{});
@@ -181,7 +213,7 @@ $('download').onclick=()=>{
   const url=URL.createObjectURL(new Blob(['\uFEFF'+text],{type:'text/plain;charset=utf-8'}));
   const a=document.createElement('a');a.href=url;a.download='english-chinese-transcript.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
-window.addEventListener('beforeunload',()=>{listening=false;recognition?.abort();requestController?.abort();window.speechSynthesis?.cancel();});
+window.addEventListener('beforeunload',()=>{speechDrafts?.dispose();listening=false;recognition?.abort();requestController?.abort();window.speechSynthesis?.cancel();});
 
 function updateMaximizeButtons(){for(const button of document.querySelectorAll('.maximize')){const pane=$(button.dataset.panel);const expanded=document.fullscreenElement===pane||pane.classList.contains('is-maximized');button.textContent=expanded?'↙':'⛶';const language=button.dataset.panel==='englishPane'?'English':'Chinese';button.setAttribute('aria-label',(expanded?'Restore ':'Maximize ')+language+' panel');button.title=expanded?'Restore panel':'Maximize panel';}}
 for(const button of document.querySelectorAll('.maximize'))button.onclick=async()=>{

@@ -67,7 +67,7 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
     if (req.method === 'GET' && ['/', '/index.html'].includes(path) && new URL(req.url,publicOrigin).searchParams.get('student') !== '1') {
       res.writeHead(303, { Location: '/?student=1' }); return res.end();
     }
-    if (!((req.method === 'GET' && ['/', '/index.html', '/status'].includes(path)) || (req.method === 'POST' && ['/translate','/clear'].includes(path)))) return reply(res, 404, { error: 'Not found.' });
+    if (!((req.method === 'GET' && ['/', '/index.html', '/status', '/speech-preview.mjs'].includes(path)) || (req.method === 'POST' && ['/translate','/clear'].includes(path)))) return reply(res, 404, { error: 'Not found.' });
     if (req.method === 'POST' && req.headers.origin !== publicOrigin) return reply(res, 403, { error: 'Request origin rejected.' });
     if (path === '/translate' && !limit('translate:' + session, 60)) return reply(res, 429, { error: 'Please wait a minute before translating more phrases.' });
     if (Number(req.headers['content-length']) > 20000) return reply(res, 413, { error: 'Phrase too long.' });

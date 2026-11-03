@@ -35,6 +35,7 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   assert.equal(login.headers['referrer-policy'],'same-origin');
   assert.equal(login.status,200); assert.match(login.body,/Access code/);assert.ok(!login.body.includes(code));
   assert.equal((await request('/translate',{method:'POST',origin:publicOrigin,body:'{}'})).status,401);
+  assert.equal((await request('/speech-preview.mjs')).status,401);
   assert.equal((await request('/login',{method:'POST',origin:'https://evil.example',body:'code='+code})).status,403);
   assert.equal((await request('/login',{method:'POST',origin:'null',body:'code='+code})).status,403);
   assert.equal((await request('/login',{method:'POST',origin:publicOrigin,body:'code=wrong'})).status,401);
@@ -50,6 +51,7 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   const translated=await request('/translate',{method:'POST',origin:publicOrigin,cookie,body:'{"text":"Hello"}'});
   assert.equal(translated.status,200);assert.match(translated.body,/你好/);assert.equal(called,1);
   assert.equal((await request('/clear',{method:'POST',origin:publicOrigin,cookie,body:'{}'})).status,200);
+  assert.equal((await request('/speech-preview.mjs',{cookie})).status,200);
   assert.equal((await request('/owner',{cookie})).status,404);
   assert.equal((await request('/logout',{method:'POST',origin:publicOrigin,cookie})).status,303);
   assert.equal((await request('/status',{cookie})).status,401);
