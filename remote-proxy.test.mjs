@@ -46,10 +46,10 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   assert.equal((await request('/translate',{method:'POST',origin:'https://evil.example',cookie,body:'{}'})).status,403);
   assert.equal((await request('/translate',{method:'POST',cookie,body:'{}'})).status,403);
   assert.equal((await request('/status',{cookie,host:'evil.example'})).status,403);
-  assert.equal((await request('/clear',{method:'POST',origin:publicOrigin,cookie,body:'{}'})).status,403);
   assert.equal((await request('/live',{cookie})).status,403);
   const translated=await request('/translate',{method:'POST',origin:publicOrigin,cookie,body:'{"text":"Hello"}'});
   assert.equal(translated.status,200);assert.match(translated.body,/你好/);assert.equal(called,1);
+  assert.equal((await request('/clear',{method:'POST',origin:publicOrigin,cookie,body:'{}'})).status,200);
   assert.equal((await request('/owner',{cookie})).status,404);
   assert.equal((await request('/logout',{method:'POST',origin:publicOrigin,cookie})).status,303);
   assert.equal((await request('/status',{cookie})).status,401);

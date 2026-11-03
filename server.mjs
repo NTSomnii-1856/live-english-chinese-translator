@@ -22,6 +22,8 @@ class CodexBridge {
   nextId = 1;
   ready = null;
   proc = null;
+  deviceThreads = new Map();
+  model = process.env.TRANSLATOR_MODEL || 'gpt-6-luna';
   start() {
     if (this.ready) return this.ready;
     this.ready = this.boot().catch(error => { this.ready = null; this.proc?.kill(); throw error; });
@@ -37,6 +39,7 @@ class CodexBridge {
     proc.on('error', error => this.fail(new Error(`Cannot start Codex: ${error.message}. Install Codex CLI and run codex login.`)));
     proc.on('exit', () => {
       this.ready = null;
+      this.deviceThreads.clear();
       this.fail(new Error('The local Codex connection closed. Try again.'));
     });
     createInterface({ input: proc.stdout }).on('line', line => {
@@ -79,14 +82,30 @@ class CodexBridge {
       });
     });
   }
-  async translate(text, context, emit, signal) {
+  async prepareDevice(device) {
     await this.start();
-    if (signal.aborted) throw new Error('Cancelled.');
+    const existing = this.deviceThreads.get(device);
+    if (existing && existing.turns < 20 && Date.now() - existing.usedAt < 10*60*1000) {
+      existing.usedAt = Date.now(); return existing;
+    }
+    if (existing) this.releaseDevice(device, existing);
     const { thread } = await this.rpc('thread/start', {
+      model: this.model,
       cwd, ephemeral: true, sandbox: 'read-only', approvalPolicy: 'never',
       environments: [], baseInstructions: instructions, developerInstructions: instructions,
       config: { web_search: 'disabled', 'features.shell_tool': false, 'features.multi_agent': false },
     });
+    const prepared = { id: thread.id, turns: 0, usedAt: Date.now() };
+    this.deviceThreads.set(device, prepared);
+    return prepared;
+  }
+  releaseDevice(device, thread) {
+    if (this.deviceThreads.get(device) === thread) this.deviceThreads.delete(device);
+    this.rpc('thread/unsubscribe', { threadId: thread.id }).catch(() => {});
+  }
+  async translate(text, context, emit, signal, device = 'local') {
+    if (signal.aborted) throw new Error('Cancelled.');
+    const thread = await this.prepareDevice(device);
     let turnId;
     let textOutput = '';
     let finalOutput = '';
@@ -122,13 +141,17 @@ class CodexBridge {
       const translated = finalOutput || textOutput;
       if (!translated.trim()) throw new Error('Codex returned no translation. Retry this phrase.');
       emit({ type: 'done', text: translated });
-    } finally {
-      this.rpc('thread/unsubscribe', { threadId: thread.id }).catch(() => {});
+      thread.turns++; thread.usedAt = Date.now();
+    } catch (error) {
+      this.releaseDevice(device, thread); throw error;
     }
   }
 }
 
 const bridge = new CodexBridge();
+setInterval(() => {
+  for (const [device, thread] of bridge.deviceThreads) if (Date.now()-thread.usedAt > 10*60*1000) bridge.releaseDevice(device, thread);
+}, 60000).unref();
 const liveFeed = createLiveFeed();
 const translations = createTranslationQueue();
 const activeDevices = new Set();
@@ -147,9 +170,15 @@ const server = http.createServer(async (req, res) => {
   if (req.headers.origin && req.headers.origin !== origin) return json(res, 403, { error: 'Local requests only.' });
   if (req.headers['x-local-token'] !== token) return json(res, 403, { error: 'Refresh the page to reconnect.' });
   if (req.method === 'GET' && path === '/live') return liveFeed.subscribe(res);
-  if (req.method === 'POST' && path === '/clear') { liveFeed.clear(); return json(res, 200, { cleared: true }); }
+  if (req.method === 'POST' && path === '/clear') {
+    const device = req.headers['x-translator-device'] || 'local';
+    const thread = bridge.deviceThreads.get(device);
+    if (thread) bridge.releaseDevice(device, thread);
+    if (device === 'local') liveFeed.clear();
+    return json(res, 200, { cleared: true });
+  }
   if (req.method === 'GET' && path === '/status') {
-    try { return json(res, 200, await bridge.start()); }
+    try { const status = await bridge.start(); await bridge.prepareDevice(req.headers['x-translator-device'] || 'local'); return json(res, 200, status); }
     catch (error) { return json(res, 503, { error: error.message }); }
   }
   if (req.method !== 'POST' || path !== '/translate') return json(res, 404, { error: 'Not found.' });
@@ -173,7 +202,7 @@ const server = http.createServer(async (req, res) => {
     // Remote devices have private transcripts; only the optional local session uses the local feed.
     const recordId = device === 'local' ? liveFeed.start(data.text.trim()) : null;
     const emit = event => { if (recordId) liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
-    try { await translations.run(() => bridge.translate(data.text.trim(), context, emit, controller.signal), controller.signal, position => emit({ type:'queued', position })); }
+    try { await translations.run(() => bridge.translate(data.text.trim(), context, emit, controller.signal, device), controller.signal, position => emit({ type:'queued', position })); }
     catch (error) { emit({ type: 'error', message: error.message }); }
     finally { activeDevices.delete(device); res.end(); }
   } catch { if (!res.headersSent) json(res, 400, { error: 'Invalid request.' }); }

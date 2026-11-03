@@ -67,13 +67,19 @@ async function connect() {
     message(error.message + ' Refresh this page after fixing the connection.', true);
   }
 }
-function addPhrase(text) {
+function addPhrase(text, mergePending = false) {
   text = text.trim(); if (!text) return;
+  const pending = queue.at(-1);
+  if (mergePending && pending?.mergePending && pending.session === session && pending.english.length + text.length < 320) {
+    pending.english += ' ' + text;
+    pending.source.textContent = pending.english;
+    scroll(); status(); return;
+  }
   if (entries.length === 0) { $('english').replaceChildren(); $('chinese').replaceChildren(); }
   const source = document.createElement('div'); source.className = 'row'; source.textContent = text;
   const output = document.createElement('div'); output.className = 'row'; output.textContent = '…';
   $('english').append(source); $('chinese').append(output);
-  const entry = { english: text, translation: '', output, session, failed: false };
+  const entry = { english: text, translation: '', source, output, session, failed: false, mergePending };
   entries.push(entry); queue.push(entry); scroll();
   if (queue.length >= 12 && listening) { stopListening(); message('Translation is catching up. Listening paused so no more phrases are added. You can restart after the queue clears.'); }
   pump();
@@ -126,7 +132,7 @@ function startListening() {
   recognition.onresult=event => {
     heard=true; let interim='';
     for(let i=event.resultIndex;i<event.results.length;i++) {
-      if(event.results[i].isFinal) addPhrase(event.results[i][0].transcript);
+      if(event.results[i].isFinal) addPhrase(event.results[i][0].transcript, true);
       else interim+=event.results[i][0].transcript;
     }
     $('interim').textContent=interim;
@@ -166,7 +172,7 @@ $('clear').onclick=()=>{
   pendingSpeech=[]; stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
   $('english').replaceChildren(); $('chinese').replaceChildren();
   for(const [id,text] of [['english','Your words will appear here.'],['chinese','让语言不再成为距离。']]) { const p=document.createElement('div');p.className='placeholder';p.textContent=text;$(id).append(p); }
-  if (!studentView) fetch('/clear', { method:'POST', headers, body:'{}' }).catch(()=>{});
+  fetch('/clear', { method:'POST', headers, body:'{}' }).catch(()=>{});
   message('Transcript cleared.'); status();
 };
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(entries.filter(e=>e.translation).map(e=>e.translation).join('\n\n'));message('Chinese translation copied.');}catch{message('Clipboard unavailable. Select the translation and copy it manually.',true);}};

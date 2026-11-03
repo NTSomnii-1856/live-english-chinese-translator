@@ -10,6 +10,8 @@ Run **Share Translator.cmd** on the PC. It starts the protected HTTPS connection
 
 The host PC needs to stay awake with the background sharing service running and Codex signed in. Its microphone is not used, and no translator or browser tab needs to stay open there. The phone captures speech; the PC only forwards text to Codex using the existing account. Internet access and the account’s Codex usage allowance are still required.
 
+For lower latency, the translator uses GPT-6 Luna with low reasoning and reuses a private, pre-initialized session per device for up to 20 phrases or 10 minutes. Clear resets that device’s context. Short speech fragments waiting in the queue are combined, while an active translation streams immediately. The first request after startup may take longer; browser speech recognition can still wait for a pause before finalizing English. Set `TRANSLATOR_MODEL` to use another supported model if needed.
+
 Keep the PC awake and the sharing process running. Closing it disconnects remote devices. The access code changes on a normal new launch. Signed-in device sessions last up to 12 hours. The code authorizes devices to translate using the host account; do not publish it.
 
 **Student screen:** English and Chinese panels, maximize/restore buttons, a microphone start/stop button, and a clear button. Each device has its own transcript and context. Clearing one screen does not affect another. Student devices cannot read the old shared class feed. Up to three phrases translate concurrently, with additional devices queued fairly. Browser speech recognition support varies; use a supported browser and allow microphone access.
