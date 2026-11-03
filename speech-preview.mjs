@@ -3,7 +3,7 @@ export function sameSpeech(a, b) {
   return normalize(a) === normalize(b);
 }
 
-export function createSpeechPreview({ onPreview, onFinal, quietMs = 350, maxWaitMs = 900, minWords = 4, minGapMs = 700, schedule = setTimeout, cancel = clearTimeout, now = Date.now }) {
+export function createSpeechPreview({ onPreview, onFinal, quietMs = 180, maxWaitMs = 450, minWords = 3, minGapMs = 300, schedule = setTimeout, cancel = clearTimeout, now = Date.now }) {
   const results = new Map();
   let disposed = false;
   function clear(state) { if(state.quiet)cancel(state.quiet);if(state.deadline)cancel(state.deadline);state.quiet=state.deadline=null; }

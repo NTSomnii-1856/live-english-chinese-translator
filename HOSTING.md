@@ -1,17 +1,11 @@
-# Hosting choices
+# Hosting
 
-This repository contains the local translator, a protected remote-sharing launcher, and a GitHub Pages entry page. Publishing its HTML alone does not provide a working online translator.
+GitHub Pages hosts the static `docs/` entry page. The host PC runs the local model and must stay awake. Install dependencies with `npm ci`, then launch `Share Translator.cmd`.
 
-GitHub Pages serves static HTML, CSS, and JavaScript. It cannot launch the included Node.js / Codex bridge. Do not publish Codex credentials, access tokens, session files, or a server-issued page token to GitHub.
+Sharing starts the local translation server on 8767, an authenticated proxy on 8766, and the owner dashboard on 8768. All bind to loopback. Only 8766 is tunneled by ngrok. The dashboard shows the QR and random six-digit code; that code is never embedded in the GitHub page or written to `.local/share-info.json`.
 
-For cross-device use with the existing Codex account, run `Share Translator.cmd`. The sharing launcher starts a separate Codex bridge on port 8767, an authenticated remote proxy on 8766, and a PC owner dashboard on 8768. All bind to loopback. Only port 8766 is tunneled by ngrok. Remote browsers must enter a randomly generated six-digit access code, protected by failed-login rate limits before viewing the translator or calling translation endpoints. The dashboard shows that code locally; it is never committed or embedded in the GitHub page. The `.local/share-info.json` runtime file contains only the public HTTPS address.
+The proxy checks tunnel host, HTTPS forwarding, request origin, login attempts, cookie lifetime, body size and supported routes. Student sessions have private transcripts, one active request per device, and a bounded fair queue. Local inference runs one request at a time on a warm model worker. Student devices cannot read the local feed or clear other students’ data. ngrok inspection is disabled. The PC microphone and browser are not required.
 
-The proxy checks the assigned tunnel host, HTTPS forwarding, request origins, access-code login attempts, cookie lifetime, request size, and supported routes. Each authenticated student can translate text recognized by their own device’s microphone. The proxy assigns a server-owned device identifier; each device has one active phrase and private transcript/context. Three phrases can run concurrently, with a bounded queue for others. Students cannot read the shared local feed or clear another device’s data. ngrok request inspection is disabled. Closing sharing stops the tunnel and its child bridge. The PC’s microphone and browser are not needed.
+The pinned ONNX model downloads from Hugging Face into ignored `.local/models/` on first start. Student text is processed locally, with no model-provider API calls. Browser speech recognition and ngrok still require connectivity. The optional `TRANSLATOR_ENGINE=codex` path requires the host’s Codex sign-in; no account credential is forwarded to browsers.
 
-GitHub Pages serves `docs/`. Initially it asks for your sharing address. After an address is assigned, its main link can be updated to that address. Public GitHub source and remote sharing are separate decisions; a private repository can store the code while the protected translator is reached through its HTTPS address.
-
-For use while that PC is off, run a backend on a separate host and configure supported model authentication there. An OpenAI API version needs server-side API credentials; they must never appear in GitHub Pages HTML or browser code.
-
-Microphone capture on another device requires HTTPS, a supported browser, and microphone permission. Translation still requires internet access.
-
-References: [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site), [Codex app-server](https://learn.chatgpt.com/docs/app-server).
+For use while this PC is off, install the backend and model on another host and provide authenticated HTTPS access there. A static HTML host alone cannot perform this backend inference.

@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createLiveFeed } from './live-feed.mjs';
 import { createTranslationQueue } from './translation-queue.mjs';
+import { LocalTranslator } from './local-translator.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const cwd = resolve(root, '.local/translator-context');
@@ -149,12 +150,13 @@ class CodexBridge {
   }
 }
 
-const bridge = new CodexBridge();
+const codex = new CodexBridge();
+const bridge = process.env.TRANSLATOR_ENGINE === 'codex' ? codex : new LocalTranslator();
 setInterval(() => {
-  for (const [device, thread] of bridge.deviceThreads) if (Date.now()-thread.usedAt > 10*60*1000) bridge.releaseDevice(device, thread);
+  for (const [device, thread] of codex.deviceThreads) if (Date.now()-thread.usedAt > 10*60*1000) codex.releaseDevice(device, thread);
 }, 60000).unref();
 const liveFeed = createLiveFeed();
-const translations = createTranslationQueue();
+const translations = createTranslationQueue({ concurrency: bridge.concurrency || 3 });
 const activeDevices = new Set();
 function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); }
 const server = http.createServer(async (req, res) => {
@@ -177,13 +179,13 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && path === '/live') return liveFeed.subscribe(res);
   if (req.method === 'POST' && path === '/clear') {
     const device = req.headers['x-translator-device'] || 'local';
-    const thread = bridge.deviceThreads.get(device);
-    if (thread) bridge.releaseDevice(device, thread);
+    const thread = codex.deviceThreads.get(device);
+    if (thread) codex.releaseDevice(device, thread);
     if (device === 'local') liveFeed.clear();
     return json(res, 200, { cleared: true });
   }
   if (req.method === 'GET' && path === '/status') {
-    try { const status = await bridge.start(); await bridge.prepareDevice(req.headers['x-translator-device'] || 'local'); return json(res, 200, status); }
+    try { const status = await bridge.start(); await bridge.prepareDevice?.(req.headers['x-translator-device'] || 'local'); return json(res, 200, status); }
     catch (error) { return json(res, 503, { error: error.message }); }
   }
   if (req.method !== 'POST' || path !== '/translate') return json(res, 404, { error: 'Not found.' });
@@ -212,6 +214,9 @@ const server = http.createServer(async (req, res) => {
     finally { activeDevices.delete(device); res.end(); }
   } catch { if (!res.headersSent) json(res, 400, { error: 'Invalid request.' }); }
 });
-server.listen(port, '127.0.0.1', () => console.log(`Live translator: ${origin}\nUses your signed-in Codex / ChatGPT account. Press Ctrl+C to stop.`));
-server.on('error', error => { console.error(error.message); bridge.proc?.kill(); process.exit(1); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { bridge.proc?.kill(); server.close(); process.exit(0); });
+server.listen(port, '127.0.0.1', () => {
+  console.log(`Live translator: ${origin}\nTranslation engine: ${bridge === codex ? 'Codex' : 'local PC'}. Press Ctrl+C to stop.`);
+  bridge.start().catch(error => console.error('Translation startup:', error.message));
+});
+server.on('error', error => { console.error(error.message); codex.proc?.kill(); bridge.close?.(); process.exit(1); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { codex.proc?.kill(); bridge.close?.(); server.close(); process.exit(0); });

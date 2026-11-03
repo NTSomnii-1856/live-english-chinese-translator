@@ -9,6 +9,11 @@ if not "%TRANSLATOR_NODE%"=="node" if not exist "%TRANSLATOR_NODE%" (
   pause
   exit /b 1
 )
+if not exist "node_modules\@huggingface\transformers\package.json" (
+  echo Install app dependencies first: npm ci
+  pause
+  exit /b 1
+)
 where codex >nul 2>nul
 if errorlevel 1 (
   for /d %%D in ("%LOCALAPPDATA%\OpenAI\Codex\bin\*") do if exist "%%D\codex.exe" set "CODEX_BIN=%%D\codex.exe"

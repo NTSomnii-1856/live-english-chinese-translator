@@ -16,16 +16,16 @@
 .student-status,.student-clear{display:none}.student .controls{display:flex!important;gap:10px;padding:12px 16px;flex:none;flex-wrap:wrap}.student .controls .hint,.student .controls .sound{display:none!important}.student .student-status{display:inline;font-size:12px;color:var(--muted);flex:1;min-width:45px}.student .student-clear{display:inline-block;padding:9px 12px;font-size:12px}.student .controls .primary{min-width:160px}.student .message.error{display:block!important;flex:none;padding:8px 12px;font-size:12px}.student #interim{display:block!important;font-size:14px;min-height:0;max-height:60px;overflow:auto}.student .panehead{margin-bottom:12px}.row.provisional{opacity:.68}</style>
 </head>
 <body><div id="viewerConnection" class="viewer-connection" hidden role="status"></div><main>
-<header><div class="brand"><span class="logo" aria-hidden="true">译</span>live<span style="color:#9ca58e"> / </span>translate</div><div id="connection" class="connection"><span class="dot"></span><span id="connectionText">Connecting to local Codex…</span></div></header>
-<section class="intro"><div><div class="eyebrow">A little less lost in translation</div><h1>Speak freely.<br>Be understood.</h1><p class="subtitle">Your English voice, in Simplified Chinese.<br>Live captions powered by your signed-in Codex account.</p></div><div class="route">English<span aria-hidden="true">→</span><b lang="zh-Hans">简体中文</b></div></section>
+<header><div class="brand"><span class="logo" aria-hidden="true">译</span>live<span style="color:#9ca58e"> / </span>translate</div><div id="connection" class="connection"><span class="dot"></span><span id="connectionText">Loading PC translation…</span></div></header>
+<section class="intro"><div><div class="eyebrow">A little less lost in translation</div><h1>Speak freely.<br>Be understood.</h1><p class="subtitle">Your English voice, in Simplified Chinese.<br>Live captions powered by background PC translation.</p></div><div class="route">English<span aria-hidden="true">→</span><b lang="zh-Hans">简体中文</b></div></section>
 <section class="workspace" aria-label="Live translation workspace">
 <div class="toolbar"><div id="status" class="status"><span class="dot"></span><span id="statusText">Ready when you are</span></div><div class="tools"><a id="studentQr" href="https://ntsomnii-1856.github.io/live-english-chinese-translator/#student-access" target="_blank" rel="noopener noreferrer">Student QR</a><button id="copy" disabled>Copy Chinese</button><button id="download" disabled>Save transcript</button><button id="clear">Clear</button></div></div>
 <div class="panes"><section class="pane" id="englishPane"><div class="panehead"><div class="language">English<small>Source</small></div><div id="wave" class="livewave" aria-hidden="true"><i></i><i></i><i></i><i></i></div><button type="button" class="maximize" data-panel="englishPane" aria-label="Maximize English panel" title="Maximize English">⛶</button></div><div id="english" class="transcript" lang="en"><div class="placeholder">Your words will appear here.</div></div><div id="interim" class="interim" aria-live="off"></div></section><section class="pane" id="chinesePane"><div class="panehead"><div class="language" lang="zh-Hans">简体中文<small>Translation</small></div><span class="badge">Live output</span><button type="button" class="maximize" data-panel="chinesePane" aria-label="Maximize Chinese panel" title="Maximize Chinese">⛶</button></div><div id="chinese" class="transcript chinese" lang="zh-Hans" role="log" aria-label="Chinese translations" aria-live="polite"><div class="placeholder">让语言不再成为距离。</div></div></section></div>
 <div class="controls"><button id="start" class="primary" disabled><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="startLabel">Start listening</span></button><span id="studentStatus" class="student-status" role="status">Connecting…</span><button id="studentClear" class="student-clear" type="button">Clear</button><span class="hint">Speak in English. Pause briefly between phrases.</span><label class="sound"><input id="speak" type="checkbox">Read Chinese aloud</label></div>
 </section>
 <div id="message" class="message" role="status">Checking your local connection…</div>
-<div class="below"><div class="note"><strong>Local page. Your existing account.</strong><br>No API key needed. Translation uses your Codex / ChatGPT allowance and an internet connection. Browser speech recognition may send audio to its speech service. Use headphones for spoken Chinese.</div><details><summary>Type a phrase instead</summary><form id="manual" class="manual"><textarea id="typed" aria-label="English phrase" placeholder="Type English here…" maxlength="4000"></textarea><button id="translate" type="submit" disabled>Translate →</button></form></details></div>
-<footer><span>EN → ZH · SIMPLIFIED CHINESE</span><span>Browser speech recognition + Codex translation</span></footer>
+<div class="below"><div class="note"><strong>Fast translation on your PC.</strong><br>No API key needed. English text is translated by a local model on the host PC. Browser speech recognition may send audio to its speech service. Use headphones for spoken Chinese.</div><details><summary>Type a phrase instead</summary><form id="manual" class="manual"><textarea id="typed" aria-label="English phrase" placeholder="Type English here…" maxlength="4000"></textarea><button id="translate" type="submit" disabled>Translate →</button></form></details></div>
+<footer><span>EN → ZH · SIMPLIFIED CHINESE</span><span>Browser speech recognition + local PC translation</span></footer>
 </main><script type="module">
 import { createSpeechPreview, sameSpeech } from "/speech-preview.mjs";
 'use strict';
@@ -53,12 +53,12 @@ async function connect() {
     $('connectionText').textContent = 'Local bridge required'; return;
   }
   try {
-    const res = await fetch('/status', { headers, signal: AbortSignal.timeout(15000) });
+    const res = await fetch('/status', { headers, signal: AbortSignal.timeout(180000) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     connected = true;
     $('connection').classList.add('ready');
-    $('connectionText').textContent = 'Connected · ChatGPT account';
+    $('connectionText').textContent = data.engine === 'local' ? 'Connected · PC translation' : 'Connected · ChatGPT account';
     $('start').disabled = !Recognition; $('translate').disabled = false;
     $('studentStatus').textContent = Recognition ? 'Ready' : 'Microphone unsupported';
     message(Recognition ? 'Ready. Click Start listening and allow microphone access.' : 'Voice recognition is unavailable here. Open this address in Chrome or Edge, or type below.', !Recognition);
