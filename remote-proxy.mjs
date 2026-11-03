@@ -20,6 +20,7 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
     if (!entry || entry.until < Date.now()) { entry = { count: 0, until: Date.now() + 60000 }; attempts.set(key, entry); }
     return ++entry.count <= max;
   }
+  function locked(key, max) { const entry = attempts.get(key); return entry && entry.until > Date.now() && entry.count >= max; }
   function reply(res, status, data, type = 'application/json; charset=utf-8') {
     res.writeHead(status, { 'Content-Type': type });
     res.end(type.startsWith('application/json') ? JSON.stringify(data) : data);
@@ -37,11 +38,14 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
     const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress).split(',').pop().trim();
     if (req.method === 'POST' && path === '/login') {
       if (req.headers.origin !== publicOrigin) return reply(res, 403, { error: 'Open the sign-in page first.' });
-      if (!limit('login:' + ip, 5)) return reply(res, 429, { error: 'Too many attempts. Wait a minute and try again.' });
+      if (locked('login:' + ip, 5) || locked('login:global', 60)) return reply(res, 429, { error: 'Too many attempts. Wait a minute and try again.' });
       if (!String(req.headers['content-type']).startsWith('application/x-www-form-urlencoded')) return reply(res, 415, { error: 'Expected a sign-in form.' });
       let body = ''; req.setEncoding('utf8');
       for await (const part of req) { body += part; if (body.length > 1000) return reply(res, 413, { error: 'Request too large.' }); }
-      if (!compare(new URLSearchParams(body).get('code')?.trim())) return reply(res, 401, loginPage('Incorrect access code. Please try again.'), 'text/html; charset=utf-8');
+      if (!compare(new URLSearchParams(body).get('code')?.trim())) {
+        limit('login:' + ip, 5); limit('login:global', 60);
+        return reply(res, 401, loginPage('Incorrect access code. Please try again.'), 'text/html; charset=utf-8');
+      }
       if (sessions.size >= 20) return reply(res, 429, { error: 'Too many signed-in devices. Restart sharing to reset them.' });
       const session = randomBytes(32).toString('hex'); sessions.set(session, Date.now() + ttl);
       res.writeHead(303, { Location: '/?student=1', 'Set-Cookie': `${cookieName}=${session}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${ttl/1000}` });
@@ -83,5 +87,5 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
 }
 
 function loginPage(error = '') {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect · Live Translate</title><style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;color:#202822;background:#f6f5f0;margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:100%;max-width:440px;background:#fffefa;border:1px solid #d9ded3;padding:34px;border-radius:18px}small{color:#24664d;letter-spacing:2px}h1{font:40px Georgia,serif;letter-spacing:-1.2px;margin:17px 0}p{color:#72786f;font-size:14px;line-height:1.7}label{display:block;font-size:13px;margin-top:24px}input,button{font:inherit;width:100%;border-radius:9px;padding:13px;margin-top:9px}input{border:1px solid #d9ded3;background:white}button{border:0;color:white;background:#24664d;cursor:pointer}.error{color:#ab4035}footer{font-size:11px;line-height:1.6;color:#72786f;margin-top:24px}</style></head><body><main><small>ENGLISH → 简体中文</small><h1>Join translation</h1><p>Enter the access code from your teacher.</p><p class="error">${error}</p><form action="/login" method="post"><label for="code">Access code</label><input id="code" name="code" type="password" autocomplete="off" spellcheck="false" required maxlength="100" autofocus><button>Join →</button></form></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect · Live Translate</title><style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;color:#202822;background:#f6f5f0;margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:100%;max-width:440px;background:#fffefa;border:1px solid #d9ded3;padding:34px;border-radius:18px}small{color:#24664d;letter-spacing:2px}h1{font:40px Georgia,serif;letter-spacing:-1.2px;margin:17px 0}p{color:#72786f;font-size:14px;line-height:1.7}label{display:block;font-size:13px;margin-top:24px}input,button{font:inherit;width:100%;border-radius:9px;padding:13px;margin-top:9px}input{border:1px solid #d9ded3;background:white}button{border:0;color:white;background:#24664d;cursor:pointer}.error{color:#ab4035}footer{font-size:11px;line-height:1.6;color:#72786f;margin-top:24px}</style></head><body><main><small>ENGLISH → 简体中文</small><h1>Join translation</h1><p>Enter the access code from your teacher.</p><p class="error">${error}</p><form action="/login" method="post"><label for="code">Access code</label><input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" spellcheck="false" required minlength="6" maxlength="6" autofocus><button>Join →</button></form></main></body></html>`;
 }

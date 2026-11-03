@@ -5,7 +5,7 @@ import { createRemoteProxy } from './remote-proxy.mjs';
 
 test('remote sharing requires login and rejects foreign origins before proxying', async t => {
   const publicOrigin = 'https://translator.example';
-  const code = 'test-access-code-only';
+  const code = '123456';
   let called = 0;
   const upstream = http.createServer((req, res) => {
     called++;
@@ -50,4 +50,7 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   assert.equal((await request('/owner',{cookie})).status,404);
   assert.equal((await request('/logout',{method:'POST',origin:publicOrigin,cookie})).status,303);
   assert.equal((await request('/status',{cookie})).status,401);
+  assert.match(login.body, /inputmode="numeric"/);
+  for(let i=0;i<4;i++) assert.equal((await request('/login',{method:'POST',origin:publicOrigin,body:'code=000000'})).status,401);
+  assert.equal((await request('/login',{method:'POST',origin:publicOrigin,body:'code='+code})).status,429);
 });

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -10,7 +10,7 @@ import { studentQrSvg } from './student-qr.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
 const runtime = resolve(root, '.local');
 await mkdir(runtime, { recursive: true });
-const code = randomBytes(12).toString('base64url');
+const code = String(randomInt(100000, 1000000));
 const target = 'http://127.0.0.1:8767';
 let publicOrigin = null;
 let tunnel = null;
