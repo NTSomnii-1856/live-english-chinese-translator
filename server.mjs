@@ -5,6 +5,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { createLiveFeed } from './live-feed.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const cwd = resolve(root, '.local/translator-context');
@@ -127,6 +128,7 @@ class CodexBridge {
 }
 
 const bridge = new CodexBridge();
+const liveFeed = createLiveFeed();
 let busy = false;
 function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); }
 const server = http.createServer(async (req, res) => {
@@ -142,6 +144,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.headers.origin && req.headers.origin !== origin) return json(res, 403, { error: 'Local requests only.' });
   if (req.headers['x-local-token'] !== token) return json(res, 403, { error: 'Refresh the page to reconnect.' });
+  if (req.method === 'GET' && path === '/live') return liveFeed.subscribe(res);
+  if (req.method === 'POST' && path === '/clear') { liveFeed.clear(); return json(res, 200, { cleared: true }); }
   if (req.method === 'GET' && path === '/status') {
     try { return json(res, 200, await bridge.start()); }
     catch (error) { return json(res, 503, { error: error.message }); }
@@ -163,7 +167,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
     const controller = new AbortController();
     res.on('close', () => controller.abort());
-    const emit = event => { if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
+    const recordId = liveFeed.start(data.text.trim());
+    const emit = event => { liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
     try { await bridge.translate(data.text.trim(), context, emit, controller.signal); }
     catch (error) { emit({ type: 'error', message: error.message }); }
     finally { busy = false; res.end(); }

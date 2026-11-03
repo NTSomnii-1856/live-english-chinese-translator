@@ -6,9 +6,11 @@ Protected live translator: https://rockiness-curve-satchel.ngrok-free.dev (avail
 
 ## Use from another device (PC stays on, no API key)
 
-Run **Share Translator.cmd** on the PC. It starts an access-code-protected ngrok HTTPS connection and the local Codex bridge. On that PC, open **http://127.0.0.1:8768** to see the HTTPS address and access code. Open the HTTPS address on your other device, enter the access code, and allow its microphone.
+Run **Share Translator.cmd** on the PC. It starts an access-code-protected ngrok HTTPS connection and the local Codex bridge. On that PC, open **http://127.0.0.1:8768** to see the HTTPS address and access code. Open **http://127.0.0.1:8767** on the teacher PC and click **Start listening**. Students open the HTTPS address or scan the QR code, enter the access code, and see the teacher’s live English and Simplified Chinese captions automatically.
 
-Keep the PC awake and the sharing process running. Closing it disconnects remote devices. The access code changes whenever sharing starts. Signed-in device sessions last up to 12 hours. Treat the code as a password: it lets a device consume your Codex allowance.
+Keep the PC awake and the sharing process running. Closing it disconnects remote devices. The access code changes whenever sharing starts. Signed-in device sessions last up to 12 hours. Treat the code as a password: it lets a device view your live classroom transcript.
+
+**Student QR:** the PC sharing page displays a large QR code and the current access code. Students scan it and enter the access code. Their view contains only the English and Chinese panels, with maximize/restore controls on each panel. Student devices do not request microphone access. The GitHub Pages entry page also displays a QR code without the access code. The translator toolbar has a **Student QR** link to that entry page. QR codes contain only the HTTPS student-view address, never an access code or account credential. Remote students can read the live feed but cannot start translations or clear the class transcript. Refreshing or reconnecting restores up to the latest 200 phrases. Clearing the teacher transcript clears student screens.
 
 Remote sharing requires ngrok installed and connected to an ngrok account. ngrok relays HTTPS traffic between your browser and PC, including speech transcripts and translations. Browser speech recognition may also send microphone audio to the browser provider. Codex account credentials remain in the PC's Codex installation, outside the repository and browser.
 

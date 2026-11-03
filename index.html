@@ -2,19 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light"><title>Live · English → 简体中文</title>
+<meta name="color-scheme" content="light"><title>Live · English → 简体中文</title><script>if(new URLSearchParams(location.search).get("student")==="1")document.documentElement.classList.add("student");</script>
 <style>
 :root{--paper:#f6f5f0;--ink:#202822;--muted:#72786f;--line:#d9ded3;--green:#24664d;--soft:#e9eee3;--red:#ab4035;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}
 *{box-sizing:border-box}body{margin:0}button,input,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:11px 17px;color:var(--ink);background:transparent}button:hover{background:var(--soft)}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #95bfa6;outline-offset:3px}main{max-width:1240px;margin:auto;padding:30px 40px 22px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:23px}.brand{display:flex;align-items:center;gap:10px;font-size:19px;letter-spacing:-.6px;font-weight:650}.logo{display:grid;place-items:center;width:33px;height:33px;border-radius:50%;background:var(--green);color:white;font-size:20px}.connection{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}.dot{width:7px;height:7px;border-radius:100%;background:#999}.connection.ready .dot{background:var(--green)}.intro{padding:42px 0 30px;display:flex;align-items:end;justify-content:space-between;gap:20px}.eyebrow{text-transform:uppercase;font-size:10px;letter-spacing:2px;color:var(--green);font-weight:700}h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:clamp(36px,5vw,58px);letter-spacing:-2px;margin:10px 0 13px;line-height:1.06}.subtitle{color:var(--muted);font-size:14px;margin:0;line-height:1.7}.route{font-size:12px;border:1px solid var(--line);padding:10px 14px;border-radius:30px;white-space:nowrap}.route span{margin:0 12px;color:var(--muted)}
 .workspace{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fffefa}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:17px 23px;border-bottom:1px solid var(--line);gap:15px}.status{font-size:12px;display:flex;align-items:center;gap:9px}.status .dot{background:#b5bcae}.status.active .dot{background:var(--green);animation:pulse 1.4s infinite}.tools{display:flex;gap:7px}.tools button{padding:7px 10px;font-size:11px}.panes{display:grid;grid-template-columns:1fr 1.16fr;min-height:390px}.pane{padding:25px 28px 32px;min-width:0}.pane+ .pane{border-left:1px solid var(--line);background:#eef2e9}.panehead{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px}.language{font-size:13px;font-weight:650}.language small{font-size:11px;font-weight:400;color:var(--muted);margin-left:8px}.badge{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}.transcript{height:265px;overflow:auto;scroll-behavior:smooth;line-height:1.9;font-size:18px;white-space:pre-wrap;overflow-wrap:anywhere}.chinese{font-size:28px;font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;line-height:1.85}.placeholder{color:#91988c;font-family:inherit;font-size:inherit}.chinese .placeholder{font-size:26px}.row{margin-bottom:18px}.row.failed{color:var(--red);font-size:15px}.row small{font-size:12px}.row button{display:block;margin-top:8px;font-size:11px;padding:4px 9px}.interim{color:#899181;font-style:italic}.controls{padding:21px 26px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);gap:15px}.primary{background:var(--green);border-color:var(--green);color:white;min-width:173px;font-size:13px;display:flex;justify-content:center;align-items:center;gap:10px}.primary:hover{background:#184e39}.primary.listening{background:var(--red);border-color:var(--red)}.mic{width:17px;height:17px}.hint{font-size:11px;color:var(--muted)}.sound{display:flex;align-items:center;gap:9px;font-size:12px}.sound input{accent-color:var(--green);width:16px;height:16px}.message{min-height:30px;font-size:12px;color:var(--muted);padding:13px 1px 0;line-height:1.6}.message.error{color:var(--red)}.below{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:20px}.note{font-size:11px;color:var(--muted);line-height:1.8}.note strong{font-weight:600;color:var(--ink)}details{border-top:1px solid var(--line);padding-top:12px}summary{font-size:12px;cursor:pointer;color:var(--green)}.manual{display:flex;gap:8px;margin-top:12px}textarea{resize:vertical;min-height:65px;width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fffefa;font-size:13px}.manual button{font-size:12px}footer{display:flex;justify-content:space-between;margin-top:35px;padding-top:15px;border-top:1px solid var(--line);font-size:10px;letter-spacing:.3px;color:var(--muted)}.livewave{display:flex;gap:3px;align-items:center;height:16px}.livewave i{display:block;width:3px;height:4px;background:var(--green);border-radius:3px}.active .livewave i{animation:wave .7s alternate infinite}.active .livewave i:nth-child(2){animation-delay:.2s}.active .livewave i:nth-child(3){animation-delay:.4s}.active .livewave i:nth-child(4){animation-delay:.1s}@keyframes pulse{50%{opacity:.35}}@keyframes wave{to{height:16px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important}}@media(max-width:720px){main{padding:22px 18px}.intro{display:block;padding-top:30px}.route{display:inline-block;margin-top:20px}.panes{grid-template-columns:1fr}.pane+.pane{border-left:0;border-top:1px solid var(--line)}.pane{padding:20px}.panehead{margin-bottom:16px}.transcript{height:180px}.controls{flex-wrap:wrap;padding:18px}.hint{display:none}.below{grid-template-columns:1fr;gap:15px}.connection{max-width:150px;text-align:right;font-size:10px}footer{gap:20px;line-height:1.6}.toolbar{padding:14px}.tools{gap:2px}.chinese{font-size:25px}}
+.tools{flex-wrap:wrap;justify-content:flex-end}.tools a{display:inline-flex;align-items:center;text-decoration:none;border:1px solid var(--line);border-radius:9px;padding:7px 10px;font-size:11px;color:var(--green)}.tools a:hover{background:var(--soft)}
+.maximize{padding:2px 8px;font-size:22px;line-height:1.2;border-color:transparent;color:var(--green);margin-left:auto}.panehead .livewave,.panehead .badge{margin-left:auto;margin-right:10px}.maximize:hover{border-color:var(--line)}
+.viewer-connection{position:fixed;z-index:50;left:50%;top:12px;transform:translateX(-50%);font-size:12px;background:#fffefa;border:1px solid var(--line);border-radius:20px;padding:8px 16px;box-shadow:0 3px 20px #0001}.viewer-connection[hidden]{display:none}
+.student body{height:100dvh;overflow:hidden}.student main{max-width:none;padding:12px;height:100dvh;display:flex;flex-direction:column}.student header,.student .intro,.student .toolbar,.student .controls,.student .message,.student .below,.student footer,.student .badge,.student .language small,.student .livewave,.student #interim{display:none!important}.student .workspace{flex:1;min-height:0;display:flex;flex-direction:column}.student .panes{flex:1;min-height:0;grid-template-columns:1fr 1fr}.student .pane{display:flex;flex-direction:column;min-height:0;padding:22px}.student .panehead{flex:none;margin-bottom:20px}.student .language{font-size:15px}.student .transcript{flex:1;min-height:0;height:auto;font-size:clamp(20px,2.5vw,35px);line-height:1.8}.student .chinese{font-size:clamp(26px,3.7vw,50px)}.student .placeholder{opacity:.65;font-size:inherit}
+.pane:fullscreen,.pane.is-maximized{position:fixed;inset:0;z-index:100;width:100vw;height:100dvh;display:flex;flex-direction:column;padding:28px!important;background:#fffefa;border:0!important}.pane#chinesePane:fullscreen,.pane#chinesePane.is-maximized{background:#eef2e9}.pane:fullscreen .panehead,.pane.is-maximized .panehead{flex:none}.pane:fullscreen .transcript,.pane.is-maximized .transcript{flex:1;min-height:0;height:auto;font-size:clamp(26px,4vw,62px)}.pane:fullscreen .chinese,.pane.is-maximized .chinese{font-size:clamp(32px,5vw,76px)}
+@media(max-width:700px){.student .panes{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.student .pane{padding:18px}.student .pane+.pane{border-left:0;border-top:1px solid var(--line)}.student .panehead{margin-bottom:12px}.student main{padding:8px}}
 </style>
 </head>
-<body><main>
+<body><div id="viewerConnection" class="viewer-connection" hidden role="status"></div><main>
 <header><div class="brand"><span class="logo" aria-hidden="true">译</span>live<span style="color:#9ca58e"> / </span>translate</div><div id="connection" class="connection"><span class="dot"></span><span id="connectionText">Connecting to local Codex…</span></div></header>
 <section class="intro"><div><div class="eyebrow">A little less lost in translation</div><h1>Speak freely.<br>Be understood.</h1><p class="subtitle">Your English voice, in Simplified Chinese.<br>Live captions powered by your signed-in Codex account.</p></div><div class="route">English<span aria-hidden="true">→</span><b lang="zh-Hans">简体中文</b></div></section>
 <section class="workspace" aria-label="Live translation workspace">
-<div class="toolbar"><div id="status" class="status"><span class="dot"></span><span id="statusText">Ready when you are</span></div><div class="tools"><button id="copy" disabled>Copy Chinese</button><button id="download" disabled>Save transcript</button><button id="clear">Clear</button></div></div>
-<div class="panes"><section class="pane"><div class="panehead"><div class="language">English<small>Source</small></div><div id="wave" class="livewave" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><div id="english" class="transcript" lang="en"><div class="placeholder">Your words will appear here.</div></div><div id="interim" class="interim" aria-live="off"></div></section><section class="pane"><div class="panehead"><div class="language" lang="zh-Hans">简体中文<small>Translation</small></div><span class="badge">Live output</span></div><div id="chinese" class="transcript chinese" lang="zh-Hans" role="log" aria-label="Chinese translations" aria-live="polite"><div class="placeholder">让语言不再成为距离。</div></div></section></div>
+<div class="toolbar"><div id="status" class="status"><span class="dot"></span><span id="statusText">Ready when you are</span></div><div class="tools"><a id="studentQr" href="https://ntsomnii-1856.github.io/live-english-chinese-translator/#student-access" target="_blank" rel="noopener noreferrer">Student QR</a><button id="copy" disabled>Copy Chinese</button><button id="download" disabled>Save transcript</button><button id="clear">Clear</button></div></div>
+<div class="panes"><section class="pane" id="englishPane"><div class="panehead"><div class="language">English<small>Source</small></div><div id="wave" class="livewave" aria-hidden="true"><i></i><i></i><i></i><i></i></div><button type="button" class="maximize" data-panel="englishPane" aria-label="Maximize English panel" title="Maximize English">⛶</button></div><div id="english" class="transcript" lang="en"><div class="placeholder">Your words will appear here.</div></div><div id="interim" class="interim" aria-live="off"></div></section><section class="pane" id="chinesePane"><div class="panehead"><div class="language" lang="zh-Hans">简体中文<small>Translation</small></div><span class="badge">Live output</span><button type="button" class="maximize" data-panel="chinesePane" aria-label="Maximize Chinese panel" title="Maximize Chinese">⛶</button></div><div id="chinese" class="transcript chinese" lang="zh-Hans" role="log" aria-label="Chinese translations" aria-live="polite"><div class="placeholder">让语言不再成为距离。</div></div></section></div>
 <div class="controls"><button id="start" class="primary" disabled><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="startLabel">Start listening</span></button><span class="hint">Speak in English. Pause briefly between phrases.</span><label class="sound"><input id="speak" type="checkbox">Read Chinese aloud</label></div>
 </section>
 <div id="message" class="message" role="status">Checking your local connection…</div>
@@ -25,6 +31,8 @@
 const TOKEN = '__LOCAL_TOKEN__';
 const $ = id => document.getElementById(id);
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const studentView = document.documentElement.classList.contains('student');
+let viewerController = null, viewerStopped = false;
 const headers = { 'Content-Type': 'application/json', 'X-Local-Token': TOKEN };
 let connected = false, listening = false, recognition = null, processing = false, blocked = false;
 let queue = [], entries = [], pendingSpeech = [], session = 0, requestController = null, restartTimer = null;
@@ -48,6 +56,7 @@ async function connect() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     connected = true;
+    if (studentView) { startStudentViewer(); return; }
     $('connection').classList.add('ready');
     $('connectionText').textContent = 'Connected · ChatGPT account';
     $('start').disabled = !Recognition; $('translate').disabled = false;
@@ -154,6 +163,7 @@ $('clear').onclick=()=>{
   pendingSpeech=[]; stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
   $('english').replaceChildren(); $('chinese').replaceChildren();
   for(const [id,text] of [['english','Your words will appear here.'],['chinese','让语言不再成为距离。']]) { const p=document.createElement('div');p.className='placeholder';p.textContent=text;$(id).append(p); }
+  fetch('/clear', { method:'POST', headers, body:'{}' }).catch(()=>{});
   message('Transcript cleared.'); status();
 };
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(entries.filter(e=>e.translation).map(e=>e.translation).join('\n\n'));message('Chinese translation copied.');}catch{message('Clipboard unavailable. Select the translation and copy it manually.',true);}};
@@ -163,5 +173,48 @@ $('download').onclick=()=>{
   const a=document.createElement('a');a.href=url;a.download='english-chinese-transcript.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
 window.addEventListener('beforeunload',()=>{listening=false;recognition?.abort();requestController?.abort();window.speechSynthesis?.cancel();});
+
+function setViewerConnection(text) { $('viewerConnection').textContent=text; $('viewerConnection').hidden=!text; }
+const viewerRecords=new Map();
+function clearViewer(){viewerRecords.clear();$('english').replaceChildren();$('chinese').replaceChildren();for(const [id,text] of [['english','Waiting for the teacher…'],['chinese','等待老师开始翻译…']]){const el=document.createElement('div');el.className='placeholder';el.textContent=text;$(id).append(el);}}
+function renderViewerRecord(record){
+  let row=viewerRecords.get(record.id);
+  if(!row){
+    if(!viewerRecords.size){$('english').replaceChildren();$('chinese').replaceChildren();}
+    const source=document.createElement('div'),output=document.createElement('div');source.className=output.className='row';
+    $('english').append(source);$('chinese').append(output);row={source,output};viewerRecords.set(record.id,row);
+    if(viewerRecords.size>200){const oldest=viewerRecords.keys().next().value;const old=viewerRecords.get(oldest);old.source.remove();old.output.remove();viewerRecords.delete(oldest);}
+  }
+  row.source.textContent=record.english;row.output.textContent=record.translation||(record.status==='error'?'翻译暂不可用':'…');scroll();
+}
+async function startStudentViewer(){
+  clearViewer();
+  while(!viewerStopped){
+    viewerController=new AbortController();
+    try{
+      const res=await fetch('/live',{headers,signal:viewerController.signal});
+      if(!res.ok){if(res.status===401){setViewerConnection('Session ended. Refresh to sign in again.');return;}throw Error('Connection unavailable');}
+      setViewerConnection('');const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='';
+      while(!viewerStopped){
+        const next=await reader.read();buffer+=decoder.decode(next.value,{stream:!next.done});let at;
+        while((at=buffer.indexOf('\n'))!==-1){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);if(!line.trim())continue;const event=JSON.parse(line);if(event.type==='snapshot'){clearViewer();for(const record of event.records)renderViewerRecord(record);}if(event.type==='record')renderViewerRecord(event.record);}
+        if(next.done)throw Error('Connection closed');
+      }
+    }catch(error){if(viewerStopped)return;setViewerConnection('Reconnecting to the teacher…');await new Promise(r=>setTimeout(r,2500));}
+  }
+}
+function updateMaximizeButtons(){for(const button of document.querySelectorAll('.maximize')){const pane=$(button.dataset.panel);const expanded=document.fullscreenElement===pane||pane.classList.contains('is-maximized');button.textContent=expanded?'↙':'⛶';const language=button.dataset.panel==='englishPane'?'English':'Chinese';button.setAttribute('aria-label',(expanded?'Restore ':'Maximize ')+language+' panel');button.title=expanded?'Restore panel':'Maximize panel';}}
+for(const button of document.querySelectorAll('.maximize'))button.onclick=async()=>{
+  const pane=$(button.dataset.panel);
+  if(document.fullscreenElement===pane){await document.exitFullscreen();return;}
+  if(pane.classList.contains('is-maximized')){pane.classList.remove('is-maximized');updateMaximizeButtons();return;}
+  document.querySelectorAll('.pane.is-maximized').forEach(el=>el.classList.remove('is-maximized'));
+  try{if(!pane.requestFullscreen)throw Error();await pane.requestFullscreen();}catch{pane.classList.add('is-maximized');}
+  updateMaximizeButtons();
+};
+document.addEventListener('fullscreenchange',updateMaximizeButtons);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){document.querySelectorAll('.pane.is-maximized').forEach(el=>el.classList.remove('is-maximized'));updateMaximizeButtons();}});
+window.addEventListener('beforeunload',()=>{viewerStopped=true;viewerController?.abort();});
+
 connect();
 </script></body></html>
