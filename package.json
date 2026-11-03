@@ -1,0 +1,14 @@
+{
+  "name": "live-english-chinese-translator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "English speech to Simplified Chinese captions using a locally signed-in Codex account.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "share": "node share.mjs",
+    "check": "node --check server.mjs && node --check share.mjs && node --check remote-proxy.mjs",
+    "test": "node --test remote-proxy.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
