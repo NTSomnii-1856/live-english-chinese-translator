@@ -7,6 +7,16 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createRemoteProxy } from './remote-proxy.mjs';
 import { studentQrSvg } from './student-qr.mjs';
 
+// Reopening the launcher should reuse the existing service and its access code.
+try {
+  const existing = await fetch('http://127.0.0.1:8768', { signal: AbortSignal.timeout(1500) });
+  const page = existing.ok ? await existing.text() : '';
+  if (page.includes('<title>Translator · Student QR & sharing</title>') && page.includes('Student sign-in')) {
+    console.log('Translator sharing is already running. Open http://127.0.0.1:8768 for the QR and code.');
+    process.exit(0);
+  }
+} catch {}
+
 const root = dirname(fileURLToPath(import.meta.url));
 const runtime = resolve(root, '.local');
 await mkdir(runtime, { recursive: true });
