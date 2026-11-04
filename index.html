@@ -24,18 +24,21 @@
 <div class="controls"><button id="start" class="primary" disabled><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="startLabel">Start listening</span></button><span id="studentStatus" class="student-status" role="status">Connecting…</span><button id="studentClear" class="student-clear" type="button">Clear</button><span class="hint">Speak in English. Pause briefly between phrases.</span><label class="sound"><input id="speak" type="checkbox">Read Chinese aloud</label></div>
 </section>
 <div id="message" class="message" role="status">Checking your local connection…</div>
-<div class="below"><div class="note"><strong>Fast translation on your PC.</strong><br>No API key needed. English text is translated by a local model on the host PC. Browser speech recognition may send audio to its speech service. Use headphones for spoken Chinese.</div><details><summary>Type a phrase instead</summary><form id="manual" class="manual"><textarea id="typed" aria-label="English phrase" placeholder="Type English here…" maxlength="4000"></textarea><button id="translate" type="submit" disabled>Translate →</button></form></details></div>
-<footer><span>EN → ZH · SIMPLIFIED CHINESE</span><span>Browser speech recognition + local PC translation</span></footer>
+<div class="below"><div class="note"><strong>Fast translation on your PC.</strong><br>No API key needed. Audio is sent securely to the host PC for speech recognition and translation in memory. Use headphones for spoken Chinese.</div><details><summary>Type a phrase instead</summary><form id="manual" class="manual"><textarea id="typed" aria-label="English phrase" placeholder="Type English here…" maxlength="4000"></textarea><button id="translate" type="submit" disabled>Translate →</button></form></details></div>
+<footer><span>EN → ZH · SIMPLIFIED CHINESE</span><span>Live speech recognition + local PC translation</span></footer>
 </main><script type="module">
-import { createSpeechPreview, sameSpeech } from "/speech-preview.mjs";
+import { sameSpeech } from "/speech-preview.mjs";
+import { createSpeechSegments } from "/speech-segments.mjs";
+import { sanitizeCaption } from "/caption-filter.mjs";
+import { startLocalSpeech } from "/local-speech.mjs";
 'use strict';
 const TOKEN = '__LOCAL_TOKEN__';
 const $ = id => document.getElementById(id);
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const microphoneSupported = !!(navigator.mediaDevices?.getUserMedia && (window.AudioContext || window.webkitAudioContext));
 const studentView = document.documentElement.classList.contains('student');
 const headers = { 'Content-Type': 'application/json', 'X-Local-Token': TOKEN };
 let connected = false, listening = false, recognition = null, processing = false, blocked = false;
-let queue = [], entries = [], pendingSpeech = [], session = 0, requestController = null, restartTimer = null, speechDrafts = null;
+let queue = [], entries = [], pendingSpeech = [], session = 0, requestController = null, speechCapture = null, speechGeneration = 0;
 function message(text, error = false) { $('message').textContent = text; $('message').classList.toggle('error', error); }
 function status() {
   $('status').classList.toggle('active', listening);
@@ -59,9 +62,9 @@ async function connect() {
     connected = true;
     $('connection').classList.add('ready');
     $('connectionText').textContent = data.engine === 'local' ? 'Connected · PC translation' : 'Connected · ChatGPT account';
-    $('start').disabled = !Recognition; $('translate').disabled = false;
-    $('studentStatus').textContent = Recognition ? 'Ready' : 'Microphone unsupported';
-    message(Recognition ? 'Ready. Click Start listening and allow microphone access.' : 'Voice recognition is unavailable here. Open this address in Chrome or Edge, or type below.', !Recognition);
+    $('start').disabled = !microphoneSupported; $('translate').disabled = false;
+    $('studentStatus').textContent = microphoneSupported ? 'Ready' : 'Microphone unsupported';
+    message(microphoneSupported ? 'Ready. Click Start listening and allow microphone access.' : 'Voice recognition is unavailable here. Open this address in Chrome or Edge, or type below.', !microphoneSupported);
   } catch(error) {
     $('connectionText').textContent = 'Connection unavailable';
     $('studentStatus').textContent = 'Connection unavailable';
@@ -69,7 +72,7 @@ async function connect() {
   }
 }
 function addPhrase(text, mergePending = false) {
-  text = text.trim(); if (!text) return;
+  text = sanitizeCaption(text).trim(); if (!text) return;
   const pending = queue.at(-1);
   if (mergePending && pending?.mergePending && pending.session === session && pending.english.length + text.length < 320) {
     pending.english += ' ' + text;
@@ -86,17 +89,20 @@ function addPhrase(text, mergePending = false) {
   pump(); return entry;
 }
 function reviseSpeech(entry, text, final = false) {
+  text = sanitizeCaption(text);
   const changed = !sameSpeech(entry.english, text);
   entry.english = text; entry.source.textContent = text; entry.provisional = !final; entry.mergePending = false;
   entry.source.classList.toggle('provisional',!final); entry.output.classList.toggle('provisional',!final || entry.translationRevision !== entry.revision);
-  if (changed) { entry.revision++; entry.translation = ""; entry.output.classList.add('provisional'); if (!entry.working && !queue.includes(entry)) queue.push(entry); }
+  if (changed) { entry.revision++; entry.output.classList.add('provisional'); if (!entry.working && !queue.includes(entry)) queue.push(entry); }
   pump();
 }
 function finalizeSpeech(entry, text) { reviseSpeech(entry,text,true); }
 function scroll() { for (const id of ['english','chinese']) { const el=$(id); el.scrollTop=el.scrollHeight; } }
 async function pump() {
   if (processing || blocked || !queue.length) return;
-  processing = true; const entry = queue.shift(); const requestRevision = entry.revision; entry.working = true; status();
+  processing = true;
+  const fresh = queue.findIndex(entry => !entry.translation);
+  const entry = queue.splice(fresh === -1 ? 0 : fresh, 1)[0]; const requestRevision = entry.revision; entry.working = true; status();
   requestController = new AbortController();
   try {
     const previous = entries.slice(Math.max(0, entries.indexOf(entry)-3), entries.indexOf(entry)).map(e=>e.english).join(' ');
@@ -104,12 +110,12 @@ async function pump() {
     if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Translation failed.'); }
     const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = '', done = false, accumulated = '';
     function accept(line) {
-      if (!line.trim() || entry.session !== session || (entry.revision !== requestRevision && !entry.provisional)) return;
+      if (!line.trim() || entry.cancelled || entry.session !== session || entry.revision !== requestRevision) return;
       const event = JSON.parse(line);
       if (event.type === 'error') throw new Error(event.message);
       if (event.type === 'queued') { $('studentStatus').textContent = 'Waiting for a translation slot…'; }
-      if (event.type === 'delta') { $('studentStatus').textContent = 'Translating…'; accumulated += event.delta; entry.output.textContent = accumulated; entry.output.classList.toggle('provisional',entry.provisional); scroll(); }
-      if (event.type === 'done') { done = true; entry.translation = event.text; entry.translationRevision = requestRevision; entry.output.textContent = event.text; entry.output.classList.toggle('provisional',entry.provisional); scroll(); }
+      if (event.type === 'delta') { $('studentStatus').textContent = 'Translating…'; accumulated += event.delta; if (!entry.translation) entry.output.textContent = sanitizeCaption(accumulated); entry.output.classList.toggle('provisional',entry.provisional); scroll(); }
+      if (event.type === 'done') { done = true; entry.translation = sanitizeCaption(event.text); entry.translationRevision = requestRevision; entry.output.textContent = entry.translation; entry.output.classList.toggle('provisional',entry.provisional); scroll(); }
     }
     while (true) {
       const next = await reader.read(); buffer += decoder.decode(next.value, { stream: !next.done });
@@ -117,13 +123,13 @@ async function pump() {
       if (next.done) break;
     }
     if (buffer) accept(buffer);
-    if (!done && entry.session === session && entry.revision === requestRevision) throw new Error('Connection ended before the translation finished.');
-    if (entry.session === session && entry.revision === requestRevision) {
+    if (!done && !entry.cancelled && entry.session === session && entry.revision === requestRevision) throw new Error('Connection ended before the translation finished.');
+    if (!entry.cancelled && entry.session === session && entry.revision === requestRevision) {
       if ($('speak').checked && !entry.provisional) { if (listening) pendingSpeech.push(entry.translation); else speak(entry.translation); }
       message(listening ? 'Listening. Chinese appears as each phrase is translated.' : 'Translation complete.');
     }
   } catch(error) {
-    if (entry.session === session && entry.revision === requestRevision && error.name !== 'AbortError') {
+    if (!entry.cancelled && entry.session === session && entry.revision === requestRevision && error.name !== 'AbortError') {
       entry.failed = true; blocked = true; stopListening();
       entry.output.classList.add('failed'); entry.output.textContent = 'Translation paused: '+error.message;
       const retry = document.createElement('button'); retry.textContent = 'Retry phrase & resume queue';
@@ -132,60 +138,48 @@ async function pump() {
     }
   } finally {
     entry.working=false;
-    if(entry.session===session && entry.revision!==requestRevision && !entry.failed && !queue.includes(entry)) queue.push(entry);
+    if(!entry.cancelled && entry.session===session && entry.revision!==requestRevision && !entry.failed && !queue.includes(entry)) queue.push(entry);
     processing=false; requestController=null; status(); pump();
   }
 }
-function startListening() {
-  if (!connected || !Recognition || blocked) { if (blocked) message('Retry the failed phrase or clear the transcript first.', true); return; }
-  window.speechSynthesis?.cancel();
-  listening=true; recognition=new Recognition();
-  recognition.lang='en-US'; recognition.continuous=true; recognition.interimResults=true;
-  let fatal=false, heard=false;
-  const currentRecognition=recognition, captureSession=session, speechRows=new Map();
-  const drafts=createSpeechPreview({
-    onPreview(index,text){
-      if(captureSession!==session || recognition!==currentRecognition)return;
-      const existing=speechRows.get(index);if(existing){reviseSpeech(existing,text);$('interim').textContent='';return;}
-      const entry=addPhrase(text);entry.provisional=true;entry.source.classList.add('provisional');entry.output.classList.add('provisional');speechRows.set(index,entry);$('interim').textContent='';
-    },
-    onFinal(index,text){
-      if(captureSession!==session || recognition!==currentRecognition)return;
-      const entry=speechRows.get(index);
-      if(entry)finalizeSpeech(entry,text);else speechRows.set(index,addPhrase(text,true));
-    },
-  });
-  speechDrafts=drafts;
-  recognition.onresult=event => {
-    if(captureSession!==session || recognition!==currentRecognition)return;
-    heard=true;let interim='';
-    for(let i=event.resultIndex;i<event.results.length;i++){
-      const result=event.results[i],text=result[0].transcript;
-      drafts.update(i,text,result.isFinal);
-      if(!result.isFinal){const entry=speechRows.get(i);if(entry)entry.source.textContent=text;else interim+=text;}
-    }
-    $('interim').textContent=interim;
-  };
-  recognition.onerror=event => {
-    if(event.error==='no-speech') return;
-    fatal=true; drafts.dispose(); listening=false; status();
-    const errors={ 'not-allowed':'Microphone access was denied. Allow it in the browser settings and try again.', 'audio-capture':'No microphone is available. Connect a microphone and try again.', 'network':'Browser speech recognition could not connect. Check internet access, or try Chrome / Edge.' };
-    message(errors[event.error] || 'Speech recognition stopped: '+event.error, true);
-  };
-  recognition.onend=() => {
-    if(captureSession===session && recognition===currentRecognition && !fatal)drafts.flush();
-    drafts.dispose();
-    if(recognition!==currentRecognition)return;
-    $('interim').textContent='';
-    if(listening && !fatal) {
-      // Browsers periodically end continuous recognition. Restart while listening is enabled.
-      restartTimer=setTimeout(()=>{if(listening) { listening=false; startListening(); }},heard?80:1200);
-    }
-  };
-  try { recognition.start(); message('Listening. Speak in English and pause briefly between phrases.'); status(); }
-  catch(error) { listening=false; status(); message(error.message,true); }
+function removeSpeech(entry) {
+  entry.cancelled=true; queue=queue.filter(item=>item!==entry); entries=entries.filter(item=>item!==entry);
+  entry.source.remove(); entry.output.remove();
 }
-function stopListening() { listening=false; clearTimeout(restartTimer); recognition?.stop(); $('interim').textContent=''; status(); if($('speak').checked && pendingSpeech.length) speak(pendingSpeech.splice(0).join(' ')); }
+async function startListening() {
+  if (!connected || !microphoneSupported || blocked || listening) { if (blocked) message('Retry the failed phrase or clear the transcript first.',true); return; }
+  window.speechSynthesis?.cancel();
+  speechCapture?.cancel();
+  const captureSession=session, generation=++speechGeneration, speechRows=new Map();
+  const segments=createSpeechSegments({
+    minWords: 1,
+    onSegment(key,text,final){
+      if(captureSession!==session || generation!==speechGeneration)return;
+      const existing=speechRows.get(key);
+      if(existing) reviseSpeech(existing,text,final);
+      else {
+        const entry=addPhrase(text); if(!entry)return;
+        entry.provisional=!final; entry.source.classList.toggle('provisional',!final);entry.output.classList.toggle('provisional',!final);
+        speechRows.set(key,entry);
+      }
+    },
+    onRemove(key){const entry=speechRows.get(key);if(entry){removeSpeech(entry);speechRows.delete(key);}},
+  });
+  listening=true;status();$('start').disabled=true;message('Allow your microphone to begin live captions.');
+  try {
+    const capture=await startLocalSpeech({headers,
+      onTranscript(id,text,final){if(captureSession===session && generation===speechGeneration)segments.update(id,sanitizeCaption(text),final);},
+      onError(error){if(captureSession!==session || generation!==speechGeneration)return;listening=false;status();message(error.message,true);},
+    });
+    if(captureSession!==session || generation!==speechGeneration || !listening){capture.cancel();return;}
+    speechCapture=capture;message('Listening. Captions update while you speak.');
+  } catch(error){listening=false;status();message(error.name==='NotAllowedError'?'Microphone access was denied. Allow it in browser settings and try again.':error.message,true);}
+  finally {$('start').disabled=!microphoneSupported;}
+}
+function stopListening() {
+  listening=false;speechCapture?.stop();$('interim').textContent='';status();
+  if($('speak').checked && pendingSpeech.length)speak(pendingSpeech.splice(0).join(' '));
+}
 function speak(text) {
   if (!window.speechSynthesis) return message('Spoken output is unavailable in this browser.',true);
   const utterance=new SpeechSynthesisUtterance(text); utterance.lang='zh-CN';
@@ -201,7 +195,7 @@ $('speak').onchange=()=>{
 $('manual').onsubmit=event=>{event.preventDefault(); if(!connected) return; if(blocked) return message('Retry the failed phrase or clear first.',true); addPhrase($('typed').value); $('typed').value='';};
 $('typed').onkeydown=event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)) $('manual').requestSubmit();};
 $('clear').onclick=()=>{
-  pendingSpeech=[]; speechDrafts?.dispose(); stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
+  pendingSpeech=[]; speechCapture?.cancel(); stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
   $('english').replaceChildren(); $('chinese').replaceChildren();
   for(const [id,text] of [['english','Your words will appear here.'],['chinese','让语言不再成为距离。']]) { const p=document.createElement('div');p.className='placeholder';p.textContent=text;$(id).append(p); }
   fetch('/clear', { method:'POST', headers, body:'{}' }).catch(()=>{});
@@ -213,7 +207,7 @@ $('download').onclick=()=>{
   const url=URL.createObjectURL(new Blob(['\uFEFF'+text],{type:'text/plain;charset=utf-8'}));
   const a=document.createElement('a');a.href=url;a.download='english-chinese-transcript.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
-window.addEventListener('beforeunload',()=>{speechDrafts?.dispose();listening=false;recognition?.abort();requestController?.abort();window.speechSynthesis?.cancel();});
+window.addEventListener('beforeunload',()=>{speechCapture?.cancel();listening=false;requestController?.abort();window.speechSynthesis?.cancel();});
 
 function updateMaximizeButtons(){for(const button of document.querySelectorAll('.maximize')){const pane=$(button.dataset.panel);const expanded=document.fullscreenElement===pane||pane.classList.contains('is-maximized');button.textContent=expanded?'↙':'⛶';const language=button.dataset.panel==='englishPane'?'English':'Chinese';button.setAttribute('aria-label',(expanded?'Restore ':'Maximize ')+language+' panel');button.title=expanded?'Restore panel':'Maximize panel';}}
 for(const button of document.querySelectorAll('.maximize'))button.onclick=async()=>{

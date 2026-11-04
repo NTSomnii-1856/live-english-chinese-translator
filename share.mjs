@@ -34,7 +34,7 @@ const owner = http.createServer((req, res) => {
   <p>1. Scan with your phone camera.<br>2. Enter the access code below.<br>3. Tap Start listening and allow your device’s microphone.</p>
   <code>${code}</code>
   ${publicOrigin ? `<p><a href="${publicOrigin}" target="_blank" rel="noreferrer">${publicOrigin}</a></p>` : ''}
-  </section><small>Each student device listens and displays its own captions. This PC translates the text in the background; its microphone and browser can stay off. Share the code with your students and keep this PC awake.</small></html>`);
+  </section><small>Each student device listens and displays its own captions. This PC recognizes speech and translates in the background; its microphone and browser can stay off. Share the code with your students and keep this PC awake.</small></html>`);
 });
 async function waitFor(url, tries = 40) {
   for (let i = 0; i < tries; i++) {

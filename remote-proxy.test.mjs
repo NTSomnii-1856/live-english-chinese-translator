@@ -25,7 +25,7 @@ test('remote sharing requires login and rejects foreign origins before proxying'
       const headers={host,'x-forwarded-proto':'https'};
       if(origin)headers.origin=origin;
       if(cookie)headers.cookie=cookie;
-      if(body)headers['content-type']=path==='/login'?'application/x-www-form-urlencoded':'application/json';
+      if(body)headers['content-type']=path==='/login'?'application/x-www-form-urlencoded':path==='/recognize'?'audio/pcm;rate=16000':'application/json';
       const req=http.request({hostname:'127.0.0.1',port:proxy.address().port,path,method,headers},res=>{
         let data='';res.setEncoding('utf8');res.on('data',part=>data+=part);res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:data}));
       });req.on('error',reject);req.end(body);
@@ -36,6 +36,7 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   assert.equal(login.status,200); assert.match(login.body,/Access code/);assert.ok(!login.body.includes(code));
   assert.equal((await request('/translate',{method:'POST',origin:publicOrigin,body:'{}'})).status,401);
   assert.equal((await request('/speech-preview.mjs')).status,401);
+  assert.equal((await request('/recognize',{method:'POST',origin:publicOrigin,body:Buffer.alloc(6400)})).status,401);
   assert.equal((await request('/login',{method:'POST',origin:'https://evil.example',body:'code='+code})).status,403);
   assert.equal((await request('/login',{method:'POST',origin:'null',body:'code='+code})).status,403);
   assert.equal((await request('/login',{method:'POST',origin:publicOrigin,body:'code=wrong'})).status,401);
@@ -53,6 +54,10 @@ test('remote sharing requires login and rejects foreign origins before proxying'
   assert.equal((await request('/clear',{method:'POST',origin:publicOrigin,cookie,body:'{}'})).status,200);
   assert.equal((await request('/speech-preview.mjs',{cookie})).status,200);
   assert.equal((await request('/owner',{cookie})).status,404);
+  assert.equal((await request('/recognize',{method:'POST',origin:'https://evil.example',cookie,body:Buffer.alloc(6400)})).status,403);
+  assert.equal((await request('/recognize',{method:'POST',origin:publicOrigin,cookie,body:Buffer.alloc(192002)})).status,413);
+  assert.equal((await request('/recognize',{method:'POST',origin:publicOrigin,cookie,body:Buffer.alloc(32000)})).status,200);
+  for(const module of ['/local-speech.mjs','/caption-filter.mjs','/speech-segments.mjs','/audio-capture.worklet.js']) assert.equal((await request(module,{cookie})).status,200);
   // A minute of fast rolling drafts must fit, while excessive requests remain bounded.
   for(let i=1;i<240;i++) assert.equal((await request('/translate',{method:'POST',origin:publicOrigin,cookie,body:'{"text":"Draft"}'})).status,200);
   assert.equal((await request('/translate',{method:'POST',origin:publicOrigin,cookie,body:'{"text":"Over limit"}'})).status,429);

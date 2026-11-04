@@ -8,8 +8,9 @@
     "start": "node server.mjs",
     "share": "node share.mjs",
     "test:local": "node --test local-translator.test.mjs",
-    "check": "node --check server.mjs && node --check share.mjs && node --check remote-proxy.mjs && node --check live-feed.mjs && node --check student-qr.mjs && node --check translation-queue.mjs && node --check speech-preview.mjs && node --check local-translator.mjs && node --check local-translation-worker.mjs",
-    "test": "node --test remote-proxy.test.mjs live-feed.test.mjs translation-queue.test.mjs phrase-queue.test.mjs speech-preview.test.mjs rolling-client.test.mjs"
+    "test:speech": "node --test local-recognizer.test.mjs",
+    "check": "node --check server.mjs && node --check share.mjs && node --check remote-proxy.mjs && node --check live-feed.mjs && node --check student-qr.mjs && node --check translation-queue.mjs && node --check speech-preview.mjs && node --check local-translator.mjs && node --check local-translation-worker.mjs && node --check local-recognizer.mjs && node --check speech-worker.mjs && node --check local-speech.mjs && node --check audio-capture.worklet.js && node --check caption-filter.mjs && node --check speech-segments.mjs",
+    "test": "node --test remote-proxy.test.mjs live-feed.test.mjs translation-queue.test.mjs phrase-queue.test.mjs speech-preview.test.mjs rolling-client.test.mjs caption-filter.test.mjs speech-segments.test.mjs local-speech.test.mjs"
   },
   "engines": {
     "node": ">=20"

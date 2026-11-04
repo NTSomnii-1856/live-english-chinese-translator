@@ -8,6 +8,8 @@ import { randomBytes } from 'node:crypto';
 import { createLiveFeed } from './live-feed.mjs';
 import { createTranslationQueue } from './translation-queue.mjs';
 import { LocalTranslator } from './local-translator.mjs';
+import { LocalRecognizer } from './local-recognizer.mjs';
+import { sanitizeCaption, createCaptionFilter } from './caption-filter.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const cwd = resolve(root, '.local/translator-context');
@@ -152,6 +154,9 @@ class CodexBridge {
 
 const codex = new CodexBridge();
 const bridge = process.env.TRANSLATOR_ENGINE === 'codex' ? codex : new LocalTranslator();
+const recognizer = new LocalRecognizer();
+const recognitionQueue = createTranslationQueue({ concurrency: 1, maxQueued: 12, timeoutMs: 15000 });
+const activeRecognition = new Set();
 setInterval(() => {
   for (const [device, thread] of codex.deviceThreads) if (Date.now()-thread.usedAt > 10*60*1000) codex.releaseDevice(device, thread);
 }, 60000).unref();
@@ -166,9 +171,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (req.headers.host !== `127.0.0.1:${port}`) return json(res, 403, { error: 'Use the local 127.0.0.1 address.' });
   const path = new URL(req.url, origin).pathname;
-  if (req.method === 'GET' && path === '/speech-preview.mjs') {
+  if (req.method === 'GET' && ['/speech-preview.mjs','/speech-segments.mjs','/caption-filter.mjs','/local-speech.mjs','/audio-capture.worklet.js'].includes(path)) {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
-    return res.end(await readFile(resolve(root, 'speech-preview.mjs'), 'utf8'));
+    return res.end(await readFile(resolve(root, path.slice(1)), 'utf8'));
   }
   if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
     const html = (await readFile(resolve(root, 'index.html'), 'utf8')).replace('__LOCAL_TOKEN__', token);
@@ -185,8 +190,35 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { cleared: true });
   }
   if (req.method === 'GET' && path === '/status') {
-    try { const status = await bridge.start(); await bridge.prepareDevice?.(req.headers['x-translator-device'] || 'local'); return json(res, 200, status); }
+    try {
+      const [status] = await Promise.all([bridge.start(), recognizer.start()]);
+      await bridge.prepareDevice?.(req.headers['x-translator-device'] || 'local');
+      return json(res, 200, { ...status, voice: 'pc' });
+    }
     catch (error) { return json(res, 503, { error: error.message }); }
+  }
+  if (req.method === 'POST' && path === '/recognize') {
+    if (req.headers['content-type'] !== 'audio/pcm;rate=16000') return json(res, 415, { error: 'Expected 16 kHz mono PCM audio.' });
+    const device = req.headers['x-translator-device'] || 'local';
+    if (activeRecognition.has(device)) return json(res, 409, { error: 'This device is already recognizing speech.' });
+    activeRecognition.add(device);
+    const controller = new AbortController();
+    res.on('close', () => controller.abort());
+    try {
+      let length = 0; const chunks = [];
+      for await (const chunk of req) {
+        length += chunk.length;
+        if (length > 192000) return json(res, 413, { error: 'Audio window is too long.' });
+        chunks.push(chunk);
+      }
+      if (length < 6400 || length % 2) return json(res, 400, { error: 'Expected 0.2–6 seconds of PCM audio.' });
+      const buffer = Buffer.concat(chunks), samples = new Float32Array(length / 2);
+      for (let i = 0; i < samples.length; i++) samples[i] = buffer.readInt16LE(i * 2) / 32768;
+      const result = await recognitionQueue.run(() => recognizer.transcribe(samples, controller.signal), controller.signal);
+      return json(res, 200, { text: sanitizeCaption(result.text), inferenceMs: result.inferenceMs });
+    } catch (error) { if (!res.destroyed) json(res, 503, { error: error.message }); }
+    finally { activeRecognition.delete(device); }
+    return;
   }
   if (req.method !== 'POST' || path !== '/translate') return json(res, 404, { error: 'Not found.' });
   if (req.headers['content-type'] !== 'application/json') return json(res, 415, { error: 'Expected JSON.' });
@@ -199,7 +231,8 @@ const server = http.createServer(async (req, res) => {
     }
     const data = JSON.parse(raw);
     if (typeof data.text !== 'string' || !data.text.trim() || data.text.length > 4000) return json(res, 400, { error: 'Enter 1–4000 characters.' });
-    const context = typeof data.context === 'string' ? data.context.slice(-3000) : '';
+    const context = sanitizeCaption(typeof data.context === 'string' ? data.context.slice(-3000) : '');
+    const text = sanitizeCaption(data.text.trim());
     const device = req.headers['x-translator-device'] || 'local';
     if (activeDevices.has(device)) return json(res, 409, { error: 'This device is already translating a phrase. Please retry shortly.' });
     activeDevices.add(device);
@@ -207,9 +240,15 @@ const server = http.createServer(async (req, res) => {
     const controller = new AbortController();
     res.on('close', () => controller.abort());
     // Remote devices have private transcripts; only the optional local session uses the local feed.
-    const recordId = device === 'local' ? liveFeed.start(data.text.trim()) : null;
-    const emit = event => { if (recordId) liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
-    try { await translations.run(() => bridge.translate(data.text.trim(), context, emit, controller.signal, device), controller.signal, position => emit({ type:'queued', position })); }
+    const recordId = device === 'local' ? liveFeed.start(text) : null;
+    const outputFilter = createCaptionFilter();
+    const write = event => { if (recordId) liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
+    const emit = event => {
+      if (event.type === 'delta') { const delta = outputFilter.push(event.delta); if (delta) write({ type: 'delta', delta }); }
+      else if (event.type === 'done') { const delta = outputFilter.finish(); if (delta) write({ type: 'delta', delta }); write({ type: 'done', text: sanitizeCaption(event.text) }); }
+      else write(event);
+    };
+    try { await translations.run(() => bridge.translate(text, context, emit, controller.signal, device), controller.signal, position => emit({ type:'queued', position })); }
     catch (error) { emit({ type: 'error', message: error.message }); }
     finally { activeDevices.delete(device); res.end(); }
   } catch { if (!res.headersSent) json(res, 400, { error: 'Invalid request.' }); }
@@ -217,6 +256,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, '127.0.0.1', () => {
   console.log(`Live translator: ${origin}\nTranslation engine: ${bridge === codex ? 'Codex' : 'local PC'}. Press Ctrl+C to stop.`);
   bridge.start().catch(error => console.error('Translation startup:', error.message));
+  recognizer.start().catch(error => console.error('Speech startup:', error.message));
 });
-server.on('error', error => { console.error(error.message); codex.proc?.kill(); bridge.close?.(); process.exit(1); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { codex.proc?.kill(); bridge.close?.(); server.close(); process.exit(0); });
+server.on('error', error => { console.error(error.message); codex.proc?.kill(); bridge.close?.(); recognizer.close(); process.exit(1); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { codex.proc?.kill(); bridge.close?.(); recognizer.close(); server.close(); process.exit(0); });
