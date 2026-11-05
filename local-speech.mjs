@@ -1,6 +1,54 @@
 // Audio stays in memory. The only destination is this application's authenticated PC.
-export function createAudioUtterances({ onAudio, previewSeconds = 0.9, updateSeconds = 0.8, silenceSeconds = 0.55, maxSeconds = 5.8, threshold = 0.006 }) {
+export function createVoiceGate({ minimumRms = 0.003, dominanceRatio = 0.35, sampleRate = 16000 } = {}) {
+  let floor = 0.0006, dominant = 0, attack = 0, tail = 0;
+  const lags = [32,40,48,56,64,72,80,96,112,128,144,160,192,224,256,288,320];
+  return {
+    update(samples, active = false) {
+      let energy = 0, crossings = 0;
+      for (let i = 0; i < samples.length; i++) {
+        energy += samples[i] * samples[i];
+        if (i && (samples[i] >= 0) !== (samples[i-1] >= 0)) crossings++;
+      }
+      const rms = Math.sqrt(energy / Math.max(1, samples.length));
+      if (!Number.isFinite(rms)) return false;
+      let periodicity = 0;
+      if (rms >= minimumRms * 0.5) for (const lag of lags) {
+        if (lag >= samples.length / 2) break;
+        let dot = 0, left = 0, right = 0;
+        for (let i = lag; i < samples.length; i += 2) {
+          const a = samples[i], b = samples[i-lag]; dot += a*b; left += a*a; right += b*b;
+        }
+        if (left && right) periodicity = Math.max(periodicity, dot / Math.sqrt(left*right));
+      }
+      const noisy = crossings / Math.max(1,samples.length) > 0.28 && periodicity < 0.25;
+      const signalThreshold = Math.max(minimumRms, floor * (periodicity >= 0.25 ? 1.5 : 2.2));
+      const threshold = Math.max(signalThreshold, dominant * dominanceRatio);
+      // Hysteresis and a short speech tail preserve softer consonants and word endings.
+      const voiced = rms >= threshold * (active ? 0.65 : 1) && !noisy && (periodicity >= 0.18 || (active && tail > 0));
+      attack = voiced ? attack + 1 : 0;
+      const accepted = voiced && (active || attack >= 2 || (periodicity >= 0.55 && rms >= minimumRms * 2));
+      const seconds = samples.length / sampleRate;
+      if (accepted) {
+        dominant = Math.max(rms, dominant * Math.exp(-seconds / 8));
+        tail = 0.2;
+      } else {
+        dominant *= Math.exp(-seconds);
+        tail = Math.max(0, tail - seconds);
+        // Learn steady hiss even when it is louder than the initial floor, never from voiced speech.
+        if (noisy || rms < minimumRms || (periodicity < 0.12 && !active)) {
+          const rate = rms > floor ? 0.06 : 0.18;
+          floor += rate * (Math.min(rms, 0.05) - floor);
+        }
+      }
+      return accepted;
+    },
+    reset() { floor = 0.0006; dominant = 0; attack = 0; tail = 0; },
+  };
+}
+
+export function createAudioUtterances({ onAudio, previewSeconds = 0.9, updateSeconds = 0.8, silenceSeconds = 0.55, maxSeconds = 5.8, threshold = 0.003 }) {
   let active = null, lead = [], serial = 0;
+  const gate = createVoiceGate({ minimumRms: threshold });
   function send(final) {
     if (!active) return;
     const samples = new Float32Array(Math.max(3200, active.length)); let offset = 0;
@@ -12,8 +60,7 @@ export function createAudioUtterances({ onAudio, previewSeconds = 0.9, updateSec
   return {
     push(samples) {
       if (!samples.length) return;
-      let energy = 0; for (const value of samples) energy += value * value;
-      const voiced = Math.sqrt(energy / samples.length) >= threshold;
+      const voiced = gate.update(samples, !!active);
       if (!active) {
         lead.push(samples); while (lead.length > 3) lead.shift();
         if (!voiced) return;
@@ -25,7 +72,7 @@ export function createAudioUtterances({ onAudio, previewSeconds = 0.9, updateSec
       if (active.length >= previewSeconds * 16000 && active.length - active.sentAt >= updateSeconds * 16000) send(false);
     },
     flush() { send(true); lead = []; },
-    clear() { active = null; lead = []; },
+    clear() { active = null; lead = []; gate.reset(); },
   };
 }
 
@@ -36,7 +83,10 @@ function encodePCM(samples) {
 }
 
 export async function startLocalSpeech({ headers, onTranscript, onPolished = () => {}, onError, onActivity = () => {} }) {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+  const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
+  const audio = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: false };
+  if (supported.voiceIsolation) audio.voiceIsolation = { ideal: true };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
   let context, source, node, gain, stopTimer, stopped = false, disposed = false, sending = false, controller = null, flushing = false, released = false;
   const pending = new Map();
   const refinements = new Map(), corrected = new Set();

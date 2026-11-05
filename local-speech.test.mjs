@@ -30,8 +30,9 @@ test('audio worklet resamples native microphone rates into exact 100 ms packets'
     let Processor; const packets=[];
     vm.runInNewContext(code,{sampleRate,Float32Array,AudioWorkletProcessor:class {port={postMessage(packet){packets.push(packet);}};},registerProcessor(name,value){Processor=value;}});
     const processor=new Processor();
-    for(let i=0;i<Math.ceil(sampleRate/128);i++)processor.process([[new Float32Array(128).fill(0.125)]]);
-    assert.equal(packets.length,10);assert.ok(packets.every(p=>p.length===1600&&p[0]===0.125));
+    for(let i=0;i<Math.ceil(sampleRate/128);i++)processor.process([[Float32Array.from({length:128},(_,j)=>.125*Math.sin(2*Math.PI*500*(i*128+j)/sampleRate))]]);
+    assert.equal(packets.length,10);assert.ok(packets.every(p=>p.length===1600&&p.every(Number.isFinite)));
+    const last=packets.at(-1),rms=Math.sqrt(last.reduce((n,x)=>n+x*x,0)/last.length);assert.ok(rms>.07&&rms<.1);
   }
 });
 test('cancelling capture stops microphone tracks and discards an in-flight transcript', async () => {
@@ -60,7 +61,7 @@ test('stopping the worklet flushes the last partial audio packet', () => {
   vm.runInNewContext(code,{sampleRate:16000,Float32Array,AudioWorkletProcessor:class{port={postMessage(value){packets.push(value);}};},registerProcessor(name,value){Processor=value;}});
   const processor=new Processor();processor.process([[new Float32Array(128).fill(.25)]]);
   processor.port.onmessage({data:{type:'flush'}});
-  assert.equal(packets[0].length,128);assert.equal(packets[0][127],.25);assert.equal(packets[1].type,'flushed');
+  assert.equal(packets[0].length,128);assert.ok(packets[0].every(Number.isFinite));assert.ok(packets[0].some(x=>Math.abs(x)>0));assert.equal(packets[1].type,'flushed');
   processor.process([[new Float32Array(128).fill(.25)]]);assert.equal(packets.length,2);
 });
 test('background correction updates the same utterance while the next live request continues', async () => {

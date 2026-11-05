@@ -49,7 +49,7 @@ export class AccurateRecognizer {
     }
     if (signal.aborted) throw Error('Cancelled.');
     // Do not ask a generative recognizer to invent text for digital silence.
-    if (Math.sqrt(sum / audio.length) < 0.002) return { text: '', durationMs: Math.round(audio.length / 16), inferenceMs: 0 };
+    if (Math.sqrt(sum / audio.length) < 0.0003) return { text: '', durationMs: Math.round(audio.length / 16), inferenceMs: 0 };
     await this.start();
     if (signal.aborted) throw Error('Cancelled.');
     const id = this.nextId++;
