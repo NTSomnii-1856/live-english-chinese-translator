@@ -39,6 +39,7 @@ const studentView = document.documentElement.classList.contains('student');
 const headers = { 'Content-Type': 'application/json', 'X-Local-Token': TOKEN };
 let connected = false, listening = false, recognition = null, processing = false, blocked = false;
 let queue = [], entries = [], pendingSpeech = [], session = 0, requestController = null, speechCapture = null, speechGeneration = 0;
+let nextEntryOrder = 0;
 function message(text, error = false) { $('message').textContent = text; $('message').classList.toggle('error', error); }
 function status() {
   $('status').classList.toggle('active', listening);
@@ -83,7 +84,7 @@ function addPhrase(text, mergePending = false) {
   const source = document.createElement('div'); source.className = 'row'; source.textContent = text;
   const output = document.createElement('div'); output.className = 'row'; output.textContent = '…';
   $('english').append(source); $('chinese').append(output);
-  const entry = { english: text, translation: '', source, output, session, failed: false, mergePending, revision: 0, working: false, provisional: false };
+  const entry = { english: text, translation: '', source, output, session, order: nextEntryOrder++, failed: false, mergePending, revision: 0, working: false, provisional: false };
   entries.push(entry); queue.push(entry); scroll();
   if (queue.length >= 12 && listening) { stopListening(); message('Translation is catching up. Listening paused so no more phrases are added. You can restart after the queue clears.'); }
   pump(); return entry;
@@ -138,7 +139,7 @@ async function pump() {
     }
   } finally {
     entry.working=false;
-    if(!entry.cancelled && entry.session===session && entry.revision!==requestRevision && !entry.failed && !queue.includes(entry)) queue.push(entry);
+    if(!entry.cancelled && !entry.polished && entry.session===session && entry.revision!==requestRevision && !entry.failed && !queue.includes(entry)) queue.push(entry);
     processing=false; requestController=null; status(); pump();
   }
 }
@@ -150,7 +151,7 @@ async function startListening() {
   if (!connected || !microphoneSupported || blocked || listening) { if (blocked) message('Retry the failed phrase or clear the transcript first.',true); return; }
   window.speechSynthesis?.cancel();
   speechCapture?.cancel();
-  const captureSession=session, generation=++speechGeneration, speechRows=new Map();
+  const captureSession=session, generation=++speechGeneration, speechRows=new Map(), speechGroups=new Map(), polished=new Set();
   const segments=createSpeechSegments({
     minWords: 1,
     onSegment(key,text,final){
@@ -161,6 +162,16 @@ async function startListening() {
         const entry=addPhrase(text); if(!entry)return;
         entry.provisional=!final; entry.source.classList.toggle('provisional',!final);entry.output.classList.toggle('provisional',!final);
         speechRows.set(key,entry);
+        // An older utterance can gain rows during correction. Keep them before newer speech.
+        const split=key.lastIndexOf(':'), id=key.slice(0,split), ordinal=Number(key.slice(split+1));
+        let group=speechGroups.get(id);
+        if(!group || group.source.parentNode!==$('english')) {
+          const source=document.createElement('div'),output=document.createElement('div');
+          source.className=output.className='utterance';$('english').append(source);$('chinese').append(output);
+          group={source,output,order:entry.order};speechGroups.set(id,group);
+        }
+        group.source.append(entry.source);group.output.append(entry.output);
+        entry.order=group.order+ordinal/1000;entries.sort((a,b)=>a.order-b.order);
       }
     },
     onRemove(key){const entry=speechRows.get(key);if(entry){removeSpeech(entry);speechRows.delete(key);}},
@@ -168,7 +179,17 @@ async function startListening() {
   listening=true;status();$('start').disabled=true;message('Allow your microphone to begin live captions.');
   try {
     const capture=await startLocalSpeech({headers,
-      onTranscript(id,text,final){if(captureSession===session && generation===speechGeneration)segments.update(id,sanitizeCaption(text),final);},
+      onTranscript(id,text,final){if(captureSession===session && generation===speechGeneration && !polished.has(id))segments.update(id,sanitizeCaption(text),final);},
+      onPolished(id,english,chinese){
+        if(captureSession!==session || generation!==speechGeneration || polished.has(id))return;
+        const rows=[...speechRows].filter(([key])=>key.startsWith(id+':'));if(!rows.length)return;
+        polished.add(id);const [key,entry]=rows[0];
+        for(const [otherKey,other] of rows.slice(1)){removeSpeech(other);speechRows.delete(otherKey);}
+        queue=queue.filter(item=>item!==entry);entry.revision++;entry.polished=true;entry.failed=false;entry.provisional=false;
+        entry.english=sanitizeCaption(english);entry.translation=sanitizeCaption(chinese);entry.translationRevision=entry.revision;
+        entry.source.textContent=entry.english;entry.output.textContent=entry.translation;
+        entry.source.classList.remove('provisional');entry.output.classList.remove('provisional');entry.output.classList.remove('failed');scroll();status();
+      },
       onError(error){if(captureSession!==session || generation!==speechGeneration)return;listening=false;status();message(error.message,true);},
     });
     if(captureSession!==session || generation!==speechGeneration || !listening){capture.cancel();return;}
@@ -195,7 +216,7 @@ $('speak').onchange=()=>{
 $('manual').onsubmit=event=>{event.preventDefault(); if(!connected) return; if(blocked) return message('Retry the failed phrase or clear first.',true); addPhrase($('typed').value); $('typed').value='';};
 $('typed').onkeydown=event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)) $('manual').requestSubmit();};
 $('clear').onclick=()=>{
-  pendingSpeech=[]; speechCapture?.cancel(); stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];
+  pendingSpeech=[]; speechCapture?.cancel(); stopListening(); session++; queue=[]; blocked=false; requestController?.abort(); window.speechSynthesis?.cancel(); entries=[];nextEntryOrder=0;
   $('english').replaceChildren(); $('chinese').replaceChildren();
   for(const [id,text] of [['english','Your words will appear here.'],['chinese','让语言不再成为距离。']]) { const p=document.createElement('div');p.className='placeholder';p.textContent=text;$(id).append(p); }
   fetch('/clear', { method:'POST', headers, body:'{}' }).catch(()=>{});

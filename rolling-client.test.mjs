@@ -12,7 +12,7 @@ function setup(){
   const start=html.indexOf('function addPhrase('),end=html.indexOf('function removeSpeech(',start);
   const ids={english:element(),chinese:element(),studentStatus:element(),speak:element()};
   const requests=[];
-  const context={queue:[],entries:[],session:0,listening:true,processing:false,blocked:false,headers:{},requestController:null,AbortController,TextDecoder,sameSpeech,sanitizeCaption,document:{createElement:element},$:id=>ids[id],status(){},message(){},stopListening(){throw Error('Unexpected stop');},fetch:async(url,options)=>{
+  const context={queue:[],entries:[],session:0,nextEntryOrder:0,listening:true,processing:false,blocked:false,headers:{},requestController:null,AbortController,TextDecoder,sameSpeech,sanitizeCaption,document:{createElement:element},$:id=>ids[id],status(){},message(){},stopListening(){throw Error('Unexpected stop');},fetch:async(url,options)=>{
     const parts=[],waiters=[];
     const reader={read:()=>parts.length?Promise.resolve(parts.shift()):new Promise(r=>waiters.push(r))};
     const deliver=part=>waiters.length?waiters.shift()(part):parts.push(part);

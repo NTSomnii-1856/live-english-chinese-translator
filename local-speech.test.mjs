@@ -12,16 +12,16 @@ test('speech sends early previews before a final pause; silence sends nothing', 
   for (let i = 0; i < 9; i++) capture.push(voice());
   assert.equal(requests.length, 1); assert.equal(requests[0].final, false);
   assert.ok(requests[0].samples.length <= 16000);
-  for (let i = 0; i < 4; i++) capture.push(silence());
+  for (let i = 0; i < 6; i++) capture.push(silence());
   assert.equal(requests.at(-1).final, true); assert.equal(requests.at(-1).id, requests[0].id);
   for (let i = 0; i < 3; i++) capture.push(voice());
   capture.flush(); assert.notEqual(requests.at(-1).id, requests[0].id);
 });
 test('sustained speech has bounded audio windows and cancel drops buffered speech', () => {
   const requests = [], capture = createAudioUtterances({ onAudio: x => requests.push(x) });
-  for (let i = 0; i < 100; i++) capture.push(voice());
+  for (let i = 0; i < 130; i++) capture.push(voice());
   assert.ok(requests.filter(x => x.final).length >= 2);
-  assert.ok(requests.every(x => x.samples.length <= 4.5 * 16000));
+  assert.ok(requests.every(x => x.samples.length <= 5.8 * 16000));
   const count = requests.length; capture.clear(); capture.flush(); assert.equal(requests.length, count);
 });
 test('audio worklet resamples native microphone rates into exact 100 ms packets', () => {
@@ -62,4 +62,36 @@ test('stopping the worklet flushes the last partial audio packet', () => {
   processor.port.onmessage({data:{type:'flush'}});
   assert.equal(packets[0].length,128);assert.equal(packets[0][127],.25);assert.equal(packets[1].type,'flushed');
   processor.process([[new Float32Array(128).fill(.25)]]);assert.equal(packets.length,2);
+});
+test('background correction updates the same utterance while the next live request continues', async () => {
+  let node,stops=0;const requests=[],transcripts=[],errors=[];
+  const connectable=()=>({connect(){},disconnect(){}});
+  class AudioContext {
+    audioWorklet={async addModule(){}};async resume(){}async close(){}
+    createMediaStreamSource(){return connectable();}createGain(){return{...connectable(),gain:{value:1}};}
+  }
+  const context=vm.createContext({Float32Array,DataView,ArrayBuffer,AbortController,Map,Math,setTimeout,clearTimeout,window:{AudioContext},navigator:{mediaDevices:{async getUserMedia(){return{getTracks:()=>[{stop(){stops++;}}]};}}},AudioWorkletNode:class{port={};constructor(){node=this;}connect(){}disconnect(){}},fetch(url,options){return new Promise(resolve=>requests.push({url,options,respond(text,ok=true){resolve({ok,status:ok?200:503,json:async()=>({text})});}}));}});
+  vm.runInContext(readFileSync(new URL('./local-speech.mjs',import.meta.url),'utf8').replaceAll('export ',''),context);
+  const capture=await context.startLocalSpeech({headers:{},onTranscript:(...args)=>transcripts.push(args),onError:e=>errors.push(e)});
+  const tick=()=>new Promise(setImmediate);
+  for(let i=0;i<9;i++)node.port.onmessage({data:voice()});
+  for(let i=0;i<6;i++)node.port.onmessage({data:silence()});
+  requests[0].respond('The might a contrary');await tick();
+  assert.equal(requests[1].url,'/recognize');requests[1].respond('The might a contrary produces energy.');await tick();
+  const correction=requests.find(r=>r.url==='/refine');assert.ok(correction);
+  for(let i=0;i<9;i++)node.port.onmessage({data:voice()});
+  const next=requests.at(-1);assert.equal(next.url,'/recognize');next.respond('Please open your books');await tick();
+  assert.ok(transcripts.some(t=>t[0]==='2'&&t[1]==='Please open your books'));
+  correction.respond('The mitochondria produce energy.');await tick();
+  const accurate=transcripts.find(t=>t[3]?.quality==='accurate');assert.equal(accurate[0],'1');assert.equal(accurate[1],'The mitochondria produce energy.');
+  // Fail the next correction quietly; it must not stop the live microphone.
+  for(let i=0;i<6;i++)node.port.onmessage({data:silence()});requests.at(-1).respond('Please open your books.');await tick();
+  const failed=requests.at(-1);assert.equal(failed.url,'/refine');failed.respond('',false);await tick();
+  assert.equal(errors.length,0);assert.equal(stops,0);
+  for(let i=0;i<9;i++)node.port.onmessage({data:voice()});
+  for(let i=0;i<6;i++)node.port.onmessage({data:silence()});
+  requests.at(-1).respond('Third draft');await tick();requests.at(-1).respond('Third final');await tick();
+  const stale=requests.at(-1);assert.equal(stale.url,'/refine');
+  capture.cancel();stale.respond('Must not appear after Clear');await tick();
+  assert.ok(!transcripts.some(t=>t[1].includes('Must not appear')));assert.equal(stops,1);
 });

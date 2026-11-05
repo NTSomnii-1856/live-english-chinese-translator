@@ -1,5 +1,5 @@
 // Audio stays in memory. The only destination is this application's authenticated PC.
-export function createAudioUtterances({ onAudio, previewSeconds = 0.9, updateSeconds = 0.8, silenceSeconds = 0.35, maxSeconds = 4.5, threshold = 0.006 }) {
+export function createAudioUtterances({ onAudio, previewSeconds = 0.9, updateSeconds = 0.8, silenceSeconds = 0.55, maxSeconds = 5.8, threshold = 0.006 }) {
   let active = null, lead = [], serial = 0;
   function send(final) {
     if (!active) return;
@@ -35,10 +35,60 @@ function encodePCM(samples) {
   return bytes;
 }
 
-export async function startLocalSpeech({ headers, onTranscript, onError, onActivity = () => {} }) {
+export async function startLocalSpeech({ headers, onTranscript, onPolished = () => {}, onError, onActivity = () => {} }) {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
   let context, source, node, gain, stopTimer, stopped = false, disposed = false, sending = false, controller = null, flushing = false, released = false;
   const pending = new Map();
+  const refinements = new Map(), corrected = new Set();
+  const polishes = new Map(), confirmed = new Map();
+  let polishing = false, polishController = null, polishTimer = null, refinementTimer = null;
+  async function polish() {
+    if (polishing || disposed || !polishes.size) return;
+    polishing = true;
+    const [id, text] = polishes.entries().next().value; polishes.delete(id);
+    const activeController = polishController = new AbortController();
+    const timer = polishTimer = setTimeout(() => activeController.abort(), 20000);
+    try {
+      const context = [...confirmed].filter(([key]) => Number(key) < Number(id)).slice(-2).map(([,value]) => value).join(' ');
+      const response = await fetch('/polish', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ text, context }), signal: activeController.signal });
+      if (!response.ok) return;
+      const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '', chinese = '';
+      const accept = line => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line);
+        if (event.type === 'error') throw Error('Translation check unavailable.');
+        if (event.type === 'done' && typeof event.text === 'string') chinese = event.text.trim();
+      };
+      while (true) {
+        const part = await reader.read(); buffer += decoder.decode(part.value, { stream: !part.done });
+        let at; while ((at = buffer.indexOf('\n')) !== -1) { accept(buffer.slice(0,at)); buffer = buffer.slice(at+1); }
+        if (part.done) break;
+      }
+      if (buffer) accept(buffer);
+      if (!disposed && chinese) onPolished(id, text, chinese);
+    } catch { /* Keep the acoustic correction and quick translation if the check is unavailable. */ }
+    finally { clearTimeout(timer); polishTimer = null; polishing = false; polishController = null; polish(); }
+  }
+  let refining = false, refinementController = null;
+  async function refine() {
+    if (refining || disposed || !refinements.size) return;
+    refining = true;
+    const [id, samples] = refinements.entries().next().value; refinements.delete(id);
+    const activeController = refinementController = new AbortController();
+    const timer = refinementTimer = setTimeout(() => activeController.abort(), 20000);
+    try {
+      const response = await fetch('/refine', { method: 'POST', headers: { ...headers, 'Content-Type': 'audio/pcm;rate=16000' }, body: encodePCM(samples), signal: activeController.signal });
+      if (!response.ok) return;
+      const result = await response.json();
+      if (!disposed && typeof result.text === 'string' && result.text.trim()) {
+        corrected.add(id); onTranscript(id, result.text, true, { quality: 'accurate' });
+        confirmed.set(id, result.text); while (confirmed.size > 4) confirmed.delete(confirmed.keys().next().value);
+        polishes.set(id, result.text); while (polishes.size > 2) polishes.delete(polishes.keys().next().value);
+        polish();
+      }
+    } catch { /* Corrections are best effort; the live microphone keeps running. */ }
+    finally { clearTimeout(timer); refinementTimer = null; refining = false; refinementController = null; refine(); }
+  }
   async function pump() {
     if (sending || disposed || !pending.size) return;
     sending = true;
@@ -58,7 +108,13 @@ export async function startLocalSpeech({ headers, onTranscript, onError, onActiv
       }
       const data = await res.json();
       if (!res.ok) throw Error(data.error || 'Speech recognition failed.');
-      if (!disposed) onTranscript(id, data.text, request.final);
+      if (!disposed && !corrected.has(id)) onTranscript(id, data.text, request.final, { quality: 'fast' });
+      if (!disposed && request.final) {
+        refinements.set(id, request.samples);
+        // Retain only recent pending corrections, without accumulating recordings.
+        while (refinements.size > 2) refinements.delete(refinements.keys().next().value);
+        refine();
+      }
     } catch (error) { if (!disposed && error.name !== 'AbortError') { cancel(); onError(error); } }
     finally { sending = false; controller = null; pump(); }
   }
@@ -75,7 +131,7 @@ export async function startLocalSpeech({ headers, onTranscript, onError, onActiv
     source?.disconnect(); node?.disconnect(); gain?.disconnect();
     context?.close().catch(() => {});
   }
-  function cancel() { disposed = true; stopped = true; flushing = false; clearTimeout(stopTimer); pending.clear(); utterances.clear(); controller?.abort(); releaseMicrophone(); }
+  function cancel() { disposed = true; stopped = true; flushing = false; clearTimeout(stopTimer); clearTimeout(refinementTimer); clearTimeout(polishTimer); pending.clear(); refinements.clear(); polishes.clear(); confirmed.clear(); corrected.clear(); utterances.clear(); controller?.abort(); refinementController?.abort(); polishController?.abort(); releaseMicrophone(); }
   function finishStop() { if (!flushing) return; flushing = false; clearTimeout(stopTimer); utterances.flush(); releaseMicrophone(); }
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;

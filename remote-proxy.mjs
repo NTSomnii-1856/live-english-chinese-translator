@@ -67,12 +67,14 @@ export function createRemoteProxy({ target, getPublicOrigin, code }) {
     if (req.method === 'GET' && ['/', '/index.html'].includes(path) && new URL(req.url,publicOrigin).searchParams.get('student') !== '1') {
       res.writeHead(303, { Location: '/?student=1' }); return res.end();
     }
-    if (!((req.method === 'GET' && ['/', '/index.html', '/status', '/speech-preview.mjs','/speech-segments.mjs','/caption-filter.mjs','/local-speech.mjs','/audio-capture.worklet.js'].includes(path)) || (req.method === 'POST' && ['/translate','/recognize','/clear'].includes(path)))) return reply(res, 404, { error: 'Not found.' });
+    if (!((req.method === 'GET' && ['/', '/index.html', '/status', '/speech-preview.mjs','/speech-segments.mjs','/caption-filter.mjs','/local-speech.mjs','/audio-capture.worklet.js'].includes(path)) || (req.method === 'POST' && ['/translate','/recognize','/refine','/polish','/clear'].includes(path)))) return reply(res, 404, { error: 'Not found.' });
     if (req.method === 'POST' && req.headers.origin !== publicOrigin) return reply(res, 403, { error: 'Request origin rejected.' });
     // Rolling drafts can update every 300 ms; retain a bound without stopping normal speech.
     if (path === '/translate' && !limit('translate:' + session, 240)) return reply(res, 429, { error: 'Please wait a minute before translating more phrases.' });
     if (path === '/recognize' && !limit('recognize:' + session, 150)) return reply(res, 429, { error: 'Too many audio updates. Please wait a minute.' });
-    const maxBytes = path === '/recognize' ? 192000 : 20000;
+    if (path === '/refine' && !limit('refine:' + session, 90)) return reply(res, 429, { error: 'Too many speech corrections.' });
+    if (path === '/polish' && !limit('polish:' + session, 90)) return reply(res, 429, { error: 'Too many translation checks.' });
+    const maxBytes = ['/recognize','/refine'].includes(path) ? 192000 : 20000;
     if (Number(req.headers['content-length']) > maxBytes) return reply(res, 413, { error: 'Request too long.' });
     const upstreamHeaders = { host: new URL(target).host, origin: target };
     upstreamHeaders['x-translator-device'] = session;

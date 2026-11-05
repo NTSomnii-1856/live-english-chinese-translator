@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, readdir, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -9,6 +9,7 @@ import { createLiveFeed } from './live-feed.mjs';
 import { createTranslationQueue } from './translation-queue.mjs';
 import { LocalTranslator } from './local-translator.mjs';
 import { LocalRecognizer } from './local-recognizer.mjs';
+import { AccurateRecognizer } from './accurate-recognizer.mjs';
 import { sanitizeCaption, createCaptionFilter } from './caption-filter.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +35,17 @@ class CodexBridge {
     return this.ready;
   }
   async boot() {
-    this.proc = spawn(process.env.CODEX_BIN || 'codex', ['app-server', '--listen', 'stdio://'], {
+    let binary = process.env.CODEX_BIN || 'codex';
+    if (!process.env.CODEX_BIN && process.platform === 'win32' && process.env.LOCALAPPDATA) {
+      try {
+        const installed = resolve(process.env.LOCALAPPDATA, 'OpenAI/Codex/bin');
+        for (const folder of (await readdir(installed)).reverse()) {
+          const candidate = resolve(installed, folder, 'codex.exe');
+          try { await access(candidate); binary = candidate; break; } catch {}
+        }
+      } catch {}
+    }
+    this.proc = spawn(binary, ['app-server', '--listen', 'stdio://'], {
       cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     const proc = this.proc;
@@ -157,12 +168,17 @@ const bridge = process.env.TRANSLATOR_ENGINE === 'codex' ? codex : new LocalTran
 const recognizer = new LocalRecognizer();
 const recognitionQueue = createTranslationQueue({ concurrency: 1, maxQueued: 12, timeoutMs: 15000 });
 const activeRecognition = new Set();
+const accurateRecognizer = new AccurateRecognizer();
+const refinementQueue = createTranslationQueue({ concurrency: 1, maxQueued: 3, timeoutMs: 12000 });
+const activeRefinement = new Set();
 setInterval(() => {
   for (const [device, thread] of codex.deviceThreads) if (Date.now()-thread.usedAt > 10*60*1000) codex.releaseDevice(device, thread);
 }, 60000).unref();
 const liveFeed = createLiveFeed();
 const translations = createTranslationQueue({ concurrency: bridge.concurrency || 3 });
 const activeDevices = new Set();
+const polishingQueue = createTranslationQueue({ concurrency: 3, maxQueued: 6, timeoutMs: 15000 });
+const activePolishing = new Set();
 function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); }
 const server = http.createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -186,6 +202,8 @@ const server = http.createServer(async (req, res) => {
     const device = req.headers['x-translator-device'] || 'local';
     const thread = codex.deviceThreads.get(device);
     if (thread) codex.releaseDevice(device, thread);
+    const polishThread = codex.deviceThreads.get('polish:' + device);
+    if (polishThread) codex.releaseDevice('polish:' + device, polishThread);
     if (device === 'local') liveFeed.clear();
     return json(res, 200, { cleared: true });
   }
@@ -193,15 +211,20 @@ const server = http.createServer(async (req, res) => {
     try {
       const [status] = await Promise.all([bridge.start(), recognizer.start()]);
       await bridge.prepareDevice?.(req.headers['x-translator-device'] || 'local');
-      return json(res, 200, { ...status, voice: 'pc' });
+      codex.prepareDevice('polish:' + (req.headers['x-translator-device'] || 'local')).catch(() => {});
+      return json(res, 200, { ...status, voice: 'pc', refinement: 'background' });
     }
     catch (error) { return json(res, 503, { error: error.message }); }
   }
-  if (req.method === 'POST' && path === '/recognize') {
+  if (req.method === 'POST' && ['/recognize','/refine'].includes(path)) {
     if (req.headers['content-type'] !== 'audio/pcm;rate=16000') return json(res, 415, { error: 'Expected 16 kHz mono PCM audio.' });
+    const correcting = path === '/refine';
+    const active = correcting ? activeRefinement : activeRecognition;
+    const queue = correcting ? refinementQueue : recognitionQueue;
+    const engine = correcting ? accurateRecognizer : recognizer;
     const device = req.headers['x-translator-device'] || 'local';
-    if (activeRecognition.has(device)) return json(res, 409, { error: 'This device is already recognizing speech.' });
-    activeRecognition.add(device);
+    if (active.has(device)) return json(res, 409, { error: 'This device already has an active speech request.' });
+    active.add(device);
     const controller = new AbortController();
     res.on('close', () => controller.abort());
     try {
@@ -214,13 +237,13 @@ const server = http.createServer(async (req, res) => {
       if (length < 6400 || length % 2) return json(res, 400, { error: 'Expected 0.2–6 seconds of PCM audio.' });
       const buffer = Buffer.concat(chunks), samples = new Float32Array(length / 2);
       for (let i = 0; i < samples.length; i++) samples[i] = buffer.readInt16LE(i * 2) / 32768;
-      const result = await recognitionQueue.run(() => recognizer.transcribe(samples, controller.signal), controller.signal);
-      return json(res, 200, { text: sanitizeCaption(result.text), inferenceMs: result.inferenceMs });
+      const result = await queue.run(() => engine.transcribe(samples, controller.signal), controller.signal);
+      return json(res, 200, { text: sanitizeCaption(result.text), inferenceMs: result.inferenceMs, quality: correcting ? 'accurate' : 'fast' });
     } catch (error) { if (!res.destroyed) json(res, 503, { error: error.message }); }
-    finally { activeRecognition.delete(device); }
+    finally { active.delete(device); }
     return;
   }
-  if (req.method !== 'POST' || path !== '/translate') return json(res, 404, { error: 'Not found.' });
+  if (req.method !== 'POST' || !['/translate','/polish'].includes(path)) return json(res, 404, { error: 'Not found.' });
   if (req.headers['content-type'] !== 'application/json') return json(res, 415, { error: 'Expected JSON.' });
   let raw = '';
   try {
@@ -234,13 +257,17 @@ const server = http.createServer(async (req, res) => {
     const context = sanitizeCaption(typeof data.context === 'string' ? data.context.slice(-3000) : '');
     const text = sanitizeCaption(data.text.trim());
     const device = req.headers['x-translator-device'] || 'local';
-    if (activeDevices.has(device)) return json(res, 409, { error: 'This device is already translating a phrase. Please retry shortly.' });
-    activeDevices.add(device);
+    const polishing = path === '/polish';
+    const active = polishing ? activePolishing : activeDevices;
+    const queue = polishing ? polishingQueue : translations;
+    const engine = polishing ? codex : bridge;
+    if (active.has(device)) return json(res, 409, { error: 'This device is already translating a phrase. Please retry shortly.' });
+    active.add(device);
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
     const controller = new AbortController();
     res.on('close', () => controller.abort());
     // Remote devices have private transcripts; only the optional local session uses the local feed.
-    const recordId = device === 'local' ? liveFeed.start(text) : null;
+    const recordId = device === 'local' && !polishing ? liveFeed.start(text) : null;
     const outputFilter = createCaptionFilter();
     const write = event => { if (recordId) liveFeed.update(recordId, event); if (!res.destroyed) res.write(JSON.stringify(event) + '\n'); };
     const emit = event => {
@@ -248,15 +275,18 @@ const server = http.createServer(async (req, res) => {
       else if (event.type === 'done') { const delta = outputFilter.finish(); if (delta) write({ type: 'delta', delta }); write({ type: 'done', text: sanitizeCaption(event.text) }); }
       else write(event);
     };
-    try { await translations.run(() => bridge.translate(text, context, emit, controller.signal, device), controller.signal, position => emit({ type:'queued', position })); }
+    try { await queue.run(() => engine.translate(text, context, emit, controller.signal, polishing ? 'polish:' + device : device), controller.signal, position => emit({ type:'queued', position })); }
     catch (error) { emit({ type: 'error', message: error.message }); }
-    finally { activeDevices.delete(device); res.end(); }
+    finally { active.delete(device); res.end(); }
   } catch { if (!res.headersSent) json(res, 400, { error: 'Invalid request.' }); }
 });
 server.listen(port, '127.0.0.1', () => {
   console.log(`Live translator: ${origin}\nTranslation engine: ${bridge === codex ? 'Codex' : 'local PC'}. Press Ctrl+C to stop.`);
   bridge.start().catch(error => console.error('Translation startup:', error.message));
   recognizer.start().catch(error => console.error('Speech startup:', error.message));
+  // Accurate recognition warms independently; it must never hold up live captions.
+  accurateRecognizer.start().catch(() => {});
+  codex.start().catch(() => {});
 });
-server.on('error', error => { console.error(error.message); codex.proc?.kill(); bridge.close?.(); recognizer.close(); process.exit(1); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { codex.proc?.kill(); bridge.close?.(); recognizer.close(); server.close(); process.exit(0); });
+server.on('error', error => { console.error(error.message); codex.proc?.kill(); bridge.close?.(); recognizer.close(); accurateRecognizer.close(); process.exit(1); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { codex.proc?.kill(); bridge.close?.(); recognizer.close(); accurateRecognizer.close(); server.close(); process.exit(0); });
